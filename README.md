@@ -137,7 +137,8 @@ Copy `.env.example` to `.env` and fill in required values:
 | `OPENAI_API_KEY` | Yes | — | OpenAI API key |
 | `OPENAI_MODEL` | No | `gpt-4o-mini` | Model used for triage |
 | `POLL_INTERVAL_SECONDS` | No | `60` | Seconds between poll cycles |
-| `ISSUE_DISCOVERY_WINDOW_MINUTES` | No | `10` | Only fetch issues created within this window |
+| `ISSUE_DISCOVERY_WINDOW_MINUTES` | No | `360` | Only fetch issues created within this window |
+| `MAX_ISSUE_COMMENTS` | No | `2` | Max comments allowed (`0` = untouched only) |
 | `GIT_CLONE_TIMEOUT_SECONDS` | No | `60` | Timeout for shallow clones |
 | `MAX_FILE_BYTES` | No | `20000` | Max bytes read per repo file |
 | `MIN_REPO_STARS` | No | `0` | Minimum stars in search query |

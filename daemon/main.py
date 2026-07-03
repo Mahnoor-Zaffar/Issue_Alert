@@ -181,7 +181,15 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
     if search_note:
         message = search_note
     elif len(issues) == 0 and new_count == 0:
-        message = "No fresh unclaimed issues in the last 10 minutes"
+        comment_note = (
+            "zero comments"
+            if settings.max_issue_comments == 0
+            else f"≤{settings.max_issue_comments} comments"
+        )
+        message = (
+            f"No fresh unclaimed issues in the last "
+            f"{settings.issue_discovery_window_minutes} minutes ({comment_note})"
+        )
     elif skipped_seen:
         message = f"{skipped_seen} already seen"
     else:

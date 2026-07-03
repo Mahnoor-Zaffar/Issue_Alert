@@ -50,9 +50,10 @@ def build_search_query(
         "is:issue",
         "is:open",
         "no:assignee",
-        "comments:0",
         format_created_filter(cutoff),
     ]
+    if settings.max_issue_comments == 0:
+        parts.append("comments:0")
     if label_clause:
         parts.append(f"({label_clause})")
     if min_stars > 0:
@@ -74,7 +75,7 @@ def passes_claim_verification(
     if "pull_request" in item:
         return False
 
-    if item.get("comments", 0) != 0:
+    if item.get("comments", 0) > settings.max_issue_comments:
         return False
 
     assignees = item.get("assignees") or []

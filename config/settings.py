@@ -15,7 +15,8 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     database_path: Path = Path("./data/triage.db")
     poll_interval_seconds: int = 60
-    issue_discovery_window_minutes: int = 10
+    issue_discovery_window_minutes: int = 360
+    max_issue_comments: int = 2
     git_clone_timeout_seconds: int = 60
     max_file_bytes: int = 20000
     api_host: str = "127.0.0.1"

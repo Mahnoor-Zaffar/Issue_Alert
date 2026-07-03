@@ -60,7 +60,7 @@ function maybeShowEmptyState() {
     list.innerHTML = `
       <div class="empty-state" id="empty-state">
         <p>No fresh unclaimed issues right now</p>
-        <span id="empty-subtitle">Only issues from the last 10 minutes with zero comments appear here. Viewed issues are cleared automatically.</span>
+        <span id="empty-subtitle">Recent unclaimed issues (≤2 comments, last 6 hours). Viewed items clear automatically.</span>
       </div>`;
   }
 }
@@ -315,7 +315,7 @@ async function loadIssues() {
     document.getElementById("issue-list").innerHTML = `
       <div class="empty-state" id="empty-state">
         <p>No fresh unclaimed issues right now</p>
-        <span id="empty-subtitle">Only issues from the last 10 minutes with zero comments appear here. Viewed issues are cleared automatically.</span>
+        <span id="empty-subtitle">Recent unclaimed issues (≤2 comments, last 6 hours). Viewed items clear automatically.</span>
       </div>`;
     return;
   }
@@ -328,7 +328,7 @@ async function loadIssues() {
 }
 
 const DEFAULT_EMPTY_SUBTITLE =
-  "Only issues from the last 10 minutes with zero comments appear here. Viewed issues are cleared automatically.";
+  "Recent unclaimed issues (≤2 comments, last 6 hours). Viewed items clear automatically.";
 
 function updateEmptySubtitle(message) {
   const subtitle = document.getElementById("empty-subtitle");
