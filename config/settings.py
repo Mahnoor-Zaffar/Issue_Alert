@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     min_repo_stars: int = 0
     github_webhook_secret: str = ""
     search_per_page: int = 30
-    search_max_pages: int = 3
+    search_max_pages: int = 1
 
 
 settings = Settings()

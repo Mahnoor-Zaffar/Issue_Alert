@@ -125,7 +125,7 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
 
     await process_webhooks(poller, triage_engine)
 
-    issues, total_count = await poller.fetch_issues()
+    issues, total_count, search_note = await poller.fetch_issues()
     new_count = 0
     skipped_seen = 0
 
@@ -146,7 +146,15 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
         if await process_issue(issue_data, triage_engine):
             new_count += 1
 
-    message = f"{skipped_seen} already seen" if skipped_seen else None
+    if search_note:
+        message = search_note
+    elif len(issues) == 0 and new_count == 0:
+        message = "No fresh unclaimed issues in the last 10 minutes"
+    elif skipped_seen:
+        message = f"{skipped_seen} already seen"
+    else:
+        message = None
+
     update_poll_state(len(issues), new_count, total_count, message)
     logger.info(
         "Poll cycle complete: %d fetched, %d new, %d already seen (total on GitHub: %d)",
@@ -183,7 +191,12 @@ async def run() -> None:
                 await poll_cycle(poller, triage_engine)
             except Exception:
                 logger.exception("Poll cycle failed")
-                update_poll_state(0, 0, 0, "Poll cycle failed — see logs")
+                update_poll_state(
+                    0,
+                    0,
+                    0,
+                    "Poll cycle failed — check daemon logs and GitHub token",
+                )
 
             await interruptible_sleep(settings.poll_interval_seconds)
     finally:

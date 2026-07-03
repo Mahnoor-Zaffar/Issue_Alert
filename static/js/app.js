@@ -327,6 +327,15 @@ async function loadIssues() {
   });
 }
 
+const DEFAULT_EMPTY_SUBTITLE =
+  "Only issues from the last 10 minutes with zero comments appear here. Viewed issues are cleared automatically.";
+
+function updateEmptySubtitle(message) {
+  const subtitle = document.getElementById("empty-subtitle");
+  if (!subtitle) return;
+  subtitle.textContent = message || DEFAULT_EMPTY_SUBTITLE;
+}
+
 function formatPollTime(isoOrSql) {
   if (!isoOrSql) return "Never";
   const d = new Date(isoOrSql.replace(" ", "T") + "Z");
@@ -363,10 +372,7 @@ async function loadStats() {
     }
     document.getElementById("last-poll-text").textContent = pollParts.join(" · ");
 
-    const subtitle = document.getElementById("empty-subtitle");
-    if (subtitle && data.last_poll_message) {
-      subtitle.textContent = data.last_poll_message;
-    }
+    updateEmptySubtitle(data.last_poll_message);
   } catch {
     /* ignore */
   }
@@ -520,6 +526,7 @@ function connectSSE() {
     ];
     if (stats.last_poll_total_count) pollParts.push(`${stats.last_poll_total_count} on GitHub`);
     document.getElementById("last-poll-text").textContent = pollParts.join(" · ");
+    updateEmptySubtitle(stats.last_poll_message);
   });
 
   eventSource.onerror = () => {

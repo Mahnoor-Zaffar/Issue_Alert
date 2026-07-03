@@ -124,28 +124,37 @@ class GitHubPoller:
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def fetch_issues(self) -> tuple[list[dict[str, Any]], int]:
+    async def fetch_issues(self) -> tuple[list[dict[str, Any]], int, str | None]:
         prefs = get_preferences()
         cutoff = freshness_cutoff_utc()
         query = build_search_query(prefs, cutoff)
-        all_items, total_count = await self._search_pages(query)
+        all_items, total_count, search_ok = await self._search_pages(query)
 
-        if total_count == 0 and len(prefs.get("labels", [])) > 1:
-            logger.warning(
-                "Combined label query returned 0 — falling back to per-label search"
+        labels = prefs.get("labels") or []
+        if search_ok and total_count == 0 and len(labels) > 1:
+            logger.info(
+                "Combined label query returned 0 results — trying per-label search"
             )
             seen_ids: set[int] = set()
             all_items = []
             total_count = 0
-            for label in prefs.get("labels", []):
+            for label in labels:
                 label_query = build_search_query({**prefs, "labels": [label]}, cutoff)
-                items, count = await self._search_pages(label_query, max_pages=1)
+                items, count, label_ok = await self._search_pages(
+                    label_query, max_pages=1
+                )
+                if not label_ok:
+                    logger.warning("Per-label search failed for %r", label)
+                    continue
                 if count:
                     total_count += count
                 for item in items:
                     if item["id"] not in seen_ids:
                         seen_ids.add(item["id"])
                         all_items.append(item)
+        elif not search_ok:
+            logger.warning("GitHub search unavailable this cycle — skipping fetch")
+            return [], 0, "GitHub search rate limited — will retry next poll"
 
         logger.info(
             "GitHub search: total_count=%d, raw_items=%d, query=%s",
@@ -169,17 +178,20 @@ class GitHubPoller:
             issue = await self._normalize_issue(item)
             normalized.append(issue)
 
-        return normalized, total_count
+        return normalized, total_count, None
 
     async def _search_pages(
         self, query: str, max_pages: int | None = None
-    ) -> tuple[list[dict[str, Any]], int]:
+    ) -> tuple[list[dict[str, Any]], int, bool]:
         pages = max_pages or settings.search_max_pages
         all_items: list[dict[str, Any]] = []
         total_count = 0
+        any_success = False
 
         for page in range(1, pages + 1):
-            items, page_total = await self._fetch_page(query, page)
+            items, page_total, page_ok = await self._fetch_page(query, page)
+            if page_ok:
+                any_success = True
             if page == 1:
                 total_count = page_total
             if not items:
@@ -188,11 +200,11 @@ class GitHubPoller:
             if len(items) < settings.search_per_page:
                 break
 
-        return all_items, total_count
+        return all_items, total_count, any_success
 
     async def _fetch_page(
         self, query: str, page: int
-    ) -> tuple[list[dict[str, Any]], int]:
+    ) -> tuple[list[dict[str, Any]], int, bool]:
         await self._rate_limiter.wait_if_needed()
 
         params = {
@@ -209,26 +221,27 @@ class GitHubPoller:
                 self._rate_limiter.update_from_headers(response.headers)
 
                 if response.status_code in (403, 429):
-                    await self._rate_limiter.backoff(attempt)
+                    await self._rate_limiter.backoff(attempt, response.headers)
                     continue
 
                 response.raise_for_status()
                 data = response.json()
+                self._rate_limiter.mark_search_complete()
 
                 if data.get("incomplete_results"):
                     logger.warning("GitHub search returned incomplete results (page %d)", page)
 
-                return data.get("items", []), data.get("total_count", 0)
+                return data.get("items", []), data.get("total_count", 0), True
 
             except httpx.HTTPStatusError:
                 logger.exception("GitHub API HTTP error on page %d", page)
-                raise
+                return [], 0, False
             except httpx.RequestError:
                 logger.exception("GitHub API request failed on page %d", page)
-                raise
+                return [], 0, False
 
         logger.error("GitHub search page %d failed after retries", page)
-        return [], 0
+        return [], 0, False
 
     async def _fetch_repo_info(self, repo_full_name: str) -> dict[str, Any]:
         if repo_full_name in self._repo_cache:
