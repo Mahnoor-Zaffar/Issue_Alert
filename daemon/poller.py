@@ -130,29 +130,7 @@ class GitHubPoller:
         query = build_search_query(prefs, cutoff)
         all_items, total_count, search_ok = await self._search_pages(query)
 
-        labels = prefs.get("labels") or []
-        if search_ok and total_count == 0 and len(labels) > 1:
-            logger.info(
-                "Combined label query returned 0 results — trying per-label search"
-            )
-            seen_ids: set[int] = set()
-            all_items = []
-            total_count = 0
-            for label in labels:
-                label_query = build_search_query({**prefs, "labels": [label]}, cutoff)
-                items, count, label_ok = await self._search_pages(
-                    label_query, max_pages=1
-                )
-                if not label_ok:
-                    logger.warning("Per-label search failed for %r", label)
-                    continue
-                if count:
-                    total_count += count
-                for item in items:
-                    if item["id"] not in seen_ids:
-                        seen_ids.add(item["id"])
-                        all_items.append(item)
-        elif not search_ok:
+        if not search_ok:
             logger.warning("GitHub search unavailable this cycle — skipping fetch")
             return [], 0, "GitHub search rate limited — will retry next poll"
 

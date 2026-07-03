@@ -1,5 +1,8 @@
 import asyncio
 import logging
+import os
+import sys
+from pathlib import Path
 from typing import Any
 
 from config.settings import settings
@@ -31,6 +34,35 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+DAEMON_LOCK = settings.database_path.parent / "daemon.pid"
+
+
+def acquire_daemon_lock() -> None:
+    """Ensure only one daemon process polls GitHub at a time."""
+    DAEMON_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    if DAEMON_LOCK.exists():
+        try:
+            old_pid = int(DAEMON_LOCK.read_text().strip())
+            os.kill(old_pid, 0)
+            logger.error(
+                "Another daemon is already running (PID %d). "
+                "Stop it before starting a new one: pkill -f 'daemon.main'",
+                old_pid,
+            )
+            sys.exit(1)
+        except (ValueError, OSError):
+            pass
+    DAEMON_LOCK.write_text(str(os.getpid()))
+
+
+def release_daemon_lock() -> None:
+    if not DAEMON_LOCK.exists():
+        return
+    try:
+        if int(DAEMON_LOCK.read_text().strip()) == os.getpid():
+            DAEMON_LOCK.unlink()
+    except (ValueError, OSError):
+        pass
 
 
 async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine) -> bool:
@@ -175,6 +207,7 @@ async def interruptible_sleep(seconds: int) -> bool:
 
 
 async def run() -> None:
+    acquire_daemon_lock()
     init_db()
     poller = GitHubPoller()
     triage_engine = TriageEngine()
@@ -201,6 +234,7 @@ async def run() -> None:
             await interruptible_sleep(settings.poll_interval_seconds)
     finally:
         await poller.close()
+        release_daemon_lock()
 
 
 def main() -> None:
