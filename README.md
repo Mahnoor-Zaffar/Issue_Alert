@@ -226,7 +226,7 @@ Then restart the daemon or click **Poll Now** on the dashboard.
 | `0 fetched, 0 new` in logs | Overly restrictive search query | Lower min stars in Preferences; defaults use `help wanted` + `good first issue` |
 | Triage status `error` | Invalid or expired OpenAI key | Verify `OPENAI_API_KEY` in `.env` |
 | No desktop notifications | plyer unsupported in environment | Non-fatal; issues still process normally |
-| Pages deploy fails | Branch source still enabled | Switch Pages source to **GitHub Actions** |
+| Pages deploy fails | Transient GitHub error or branch source still enabled | Re-run the workflow from Actions; ensure Pages source is **GitHub Actions** only |
 
 ---
 
