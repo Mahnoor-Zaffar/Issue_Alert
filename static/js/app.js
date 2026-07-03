@@ -1,5 +1,12 @@
 const issueMap = new Map();
 let eventSource = null;
+let filters = {
+  language: "",
+  status: "",
+  label: "",
+  bookmarked_only: false,
+  show_dismissed: false,
+};
 
 const STATUS_LABELS = {
   pending: "Pending",
@@ -25,37 +32,62 @@ function renderMarkdown(text) {
     .replace(/$/, "</p>");
 }
 
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
 function buildCard(issue) {
   const labels = (issue.labels || [])
-    .map((l) => `<span class="badge badge-label">${l}</span>`)
+    .map((l) => `<span class="badge badge-label">${escapeHtml(l)}</span>`)
     .join("");
 
   const langBadge = issue.language
-    ? `<span class="badge badge-language">${issue.language}</span>`
+    ? `<span class="badge badge-language">${escapeHtml(issue.language)}</span>`
     : "";
 
+  const starsBadge =
+    issue.repo_stars > 0
+      ? `<span class="badge badge-stars">★ ${issue.repo_stars}</span>`
+      : "";
+
+  const scoreBadge =
+    issue.score > 0
+      ? `<span class="badge badge-score">Score ${issue.score}</span>`
+      : "";
+
   const triageHtml = buildTriageHtml(issue);
+  const cardClass = issue.status === "error" ? "issue-card issue-card-error" : "issue-card";
+  const bookmarkClass = issue.bookmarked ? "btn-icon active" : "btn-icon";
 
   return `
-    <article class="issue-card" data-id="${issue.id}" id="issue-${issue.id}">
+    <article class="${cardClass}" data-id="${issue.id}" id="issue-${issue.id}">
       <div class="card-header">
         <div>
           <div class="card-meta">
-            <span class="repo-name">${issue.repo_full_name}</span>
+            <span class="repo-name">${escapeHtml(issue.repo_full_name)}</span>
             ${langBadge}
+            ${starsBadge}
+            ${scoreBadge}
             ${labels}
           </div>
           <h2 class="issue-title">
-            <a href="${issue.html_url}" target="_blank" rel="noopener">${issue.title}</a>
+            <a href="${issue.html_url}" target="_blank" rel="noopener">${escapeHtml(issue.title)}</a>
           </h2>
         </div>
         <span class="status-pill status-${issue.status}" data-status="${issue.status}">
           ${STATUS_LABELS[issue.status] || issue.status}
         </span>
       </div>
-      <p class="issue-body-preview">${truncate(issue.body)}</p>
+      <p class="issue-body-preview">${escapeHtml(truncate(issue.body))}</p>
       ${triageHtml}
-      ${issue.error_message ? `<p class="error-msg">${issue.error_message}</p>` : ""}
+      ${issue.error_message ? `<div class="error-box"><strong>Error:</strong> ${escapeHtml(issue.error_message)}</div>` : ""}
+      <div class="card-actions">
+        <button class="${bookmarkClass}" onclick="toggleBookmark(${issue.id})" title="Bookmark">★</button>
+        <button class="btn-icon" onclick="dismissIssue(${issue.id})" title="Dismiss">✕</button>
+        ${issue.triage ? `<button class="btn btn-secondary btn-sm" onclick="exportTriage(${issue.id})">Export MD</button>` : ""}
+      </div>
     </article>
   `;
 }
@@ -86,7 +118,7 @@ function buildTriageHtml(issue) {
   }
 
   if (issue.status === "error") {
-    return "";
+    return `<p class="triage-pending-msg">Triage failed — see error below.</p>`;
   }
 
   return `<p class="triage-pending-msg">AI triage in progress…</p>`;
@@ -144,9 +176,24 @@ function toggleTriage(id) {
   }
 }
 
-window.toggleTriage = toggleTriage;
+function buildQueryParams() {
+  const params = new URLSearchParams({ limit: "50" });
+  if (filters.language) params.set("language", filters.language);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.label) params.set("label", filters.label);
+  if (filters.bookmarked_only) params.set("bookmarked_only", "true");
+  if (filters.show_dismissed) params.set("show_dismissed", "true");
+  return params.toString();
+}
 
 function upsertIssue(issue, animate = true) {
+  if (issue.dismissed && !filters.show_dismissed) {
+    const existing = document.getElementById(`issue-${issue.id}`);
+    if (existing) existing.remove();
+    issueMap.delete(issue.id);
+    return;
+  }
+
   const existing = issueMap.get(issue.id);
   const prevStatus = existing?.status;
 
@@ -186,33 +233,180 @@ function upsertIssue(issue, animate = true) {
 }
 
 async function loadIssues() {
-  const res = await fetch("/api/issues?limit=50");
+  const res = await fetch(`/api/issues?${buildQueryParams()}`);
   const data = await res.json();
   const issues = data.issues || [];
 
-  if (issues.length === 0) return;
+  issueMap.clear();
+  document.getElementById("issue-list").innerHTML = "";
 
-  const empty = document.getElementById("empty-state");
-  if (empty) empty.remove();
+  if (issues.length === 0) {
+    document.getElementById("issue-list").innerHTML = `
+      <div class="empty-state" id="empty-state">
+        <p>No issues match your filters</p>
+        <span id="empty-subtitle">Try clearing filters or click Poll Now.</span>
+      </div>`;
+    return;
+  }
 
   issues.reverse().forEach((issue, i) => {
     upsertIssue(issue, false);
     const card = document.getElementById(`issue-${issue.id}`);
-    if (card) animateCardIn(card, i * 80);
+    if (card) animateCardIn(card, i * 60);
   });
+}
+
+function formatPollTime(isoOrSql) {
+  if (!isoOrSql) return "Never";
+  const d = new Date(isoOrSql.replace(" ", "T") + "Z");
+  if (isNaN(d.getTime())) return isoOrSql;
+  const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return "Just now";
+  if (mins === 1) return "1 min ago";
+  return `${mins} min ago`;
 }
 
 async function loadStats() {
   try {
     const res = await fetch("/api/health");
     const data = await res.json();
-    document.getElementById("stat-total").textContent = data.issue_count ?? 0;
+    document.getElementById("stat-total").textContent = data.total ?? 0;
     document.getElementById("stat-pending").textContent = data.pending ?? 0;
     document.getElementById("stat-complete").textContent = data.complete ?? 0;
+
+    const pollParts = [];
+    pollParts.push(formatPollTime(data.last_poll_at));
+    if (data.last_poll_fetched != null) {
+      pollParts.push(`${data.last_poll_fetched} fetched`);
+    }
+    if (data.last_poll_new != null) {
+      pollParts.push(`${data.last_poll_new} new`);
+    }
+    if (data.last_poll_total_count) {
+      pollParts.push(`${data.last_poll_total_count} on GitHub`);
+    }
+    document.getElementById("last-poll-text").textContent = pollParts.join(" · ");
+
+    const subtitle = document.getElementById("empty-subtitle");
+    if (subtitle && data.last_poll_message) {
+      subtitle.textContent = data.last_poll_message;
+    }
   } catch {
     /* ignore */
   }
 }
+
+async function loadPreferences() {
+  try {
+    const res = await fetch("/api/preferences");
+    const prefs = await res.json();
+    document.getElementById("pref-languages").value = (prefs.languages || []).join(",");
+    document.getElementById("pref-labels").value = (prefs.labels || []).join(",");
+    document.getElementById("pref-min-stars").value = prefs.min_stars ?? 10;
+    document.getElementById("pref-show-dismissed").checked = !!prefs.show_dismissed;
+    filters.show_dismissed = !!prefs.show_dismissed;
+  } catch {
+    /* ignore */
+  }
+}
+
+async function savePreferences() {
+  const body = {
+    languages: document.getElementById("pref-languages").value.split(",").map((s) => s.trim()).filter(Boolean),
+    labels: document.getElementById("pref-labels").value.split(",").map((s) => s.trim()).filter(Boolean),
+    min_stars: parseInt(document.getElementById("pref-min-stars").value, 10) || 0,
+    show_dismissed: document.getElementById("pref-show-dismissed").checked,
+  };
+  await fetch("/api/preferences", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  filters.show_dismissed = body.show_dismissed;
+  await loadIssues();
+}
+
+async function triggerPoll() {
+  const btn = document.getElementById("btn-poll-now");
+  btn.disabled = true;
+  btn.textContent = "Polling…";
+  try {
+    await fetch("/api/trigger-poll", { method: "POST" });
+    document.getElementById("last-poll-text").textContent = "Poll requested…";
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = "Poll Now";
+    }, 2000);
+  }
+}
+
+async function toggleBookmark(id) {
+  const issue = issueMap.get(id);
+  const newVal = !issue?.bookmarked;
+  const res = await fetch(`/api/issues/${id}/bookmark`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value: newVal }),
+  });
+  const updated = await res.json();
+  upsertIssue(updated, false);
+}
+
+async function dismissIssue(id) {
+  await fetch(`/api/issues/${id}/dismiss`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value: true }),
+  });
+  const card = document.getElementById(`issue-${id}`);
+  if (card) {
+    anime({
+      targets: card,
+      opacity: 0,
+      translateX: 40,
+      duration: 400,
+      easing: "easeInOutQuad",
+      complete: () => {
+        card.remove();
+        issueMap.delete(id);
+        loadStats();
+      },
+    });
+  }
+}
+
+function exportTriage(id) {
+  const issue = issueMap.get(id);
+  if (!issue?.triage) return;
+
+  const md = `# ${issue.title}
+
+**Repo:** ${issue.repo_full_name}  
+**URL:** ${issue.html_url}
+
+## Codebase Architecture Context
+${issue.triage.architecture_context}
+
+## Core Issue Breakdown
+${issue.triage.issue_breakdown}
+
+## Suggested PR Action Plan
+${issue.triage.action_plan}
+`;
+
+  const blob = new Blob([md], { type: "text/markdown" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `triage-${issue.id}.md`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+window.toggleTriage = toggleTriage;
+window.toggleBookmark = toggleBookmark;
+window.dismissIssue = dismissIssue;
+window.exportTriage = exportTriage;
 
 function setConnectionStatus(connected) {
   const dot = document.getElementById("sse-dot");
@@ -236,6 +430,20 @@ function connectSSE() {
     loadStats();
   });
 
+  eventSource.addEventListener("stats_update", (e) => {
+    const stats = JSON.parse(e.data);
+    document.getElementById("stat-total").textContent = stats.total ?? 0;
+    document.getElementById("stat-pending").textContent = stats.pending ?? 0;
+    document.getElementById("stat-complete").textContent = stats.complete ?? 0;
+    const pollParts = [
+      formatPollTime(stats.last_poll_at),
+      `${stats.last_poll_fetched ?? 0} fetched`,
+      `${stats.last_poll_new ?? 0} new`,
+    ];
+    if (stats.last_poll_total_count) pollParts.push(`${stats.last_poll_total_count} on GitHub`);
+    document.getElementById("last-poll-text").textContent = pollParts.join(" · ");
+  });
+
   eventSource.onerror = () => {
     setConnectionStatus(false);
     eventSource.close();
@@ -243,9 +451,34 @@ function connectSSE() {
   };
 }
 
+function bindFilters() {
+  ["filter-language", "filter-status", "filter-label"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", (e) => {
+      const key = id.replace("filter-", "");
+      filters[key === "bookmarked" ? "bookmarked_only" : key] = e.target.value;
+      loadIssues();
+    });
+  });
+
+  document.getElementById("filter-bookmarked").addEventListener("change", (e) => {
+    filters.bookmarked_only = e.target.checked;
+    loadIssues();
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  loadPreferences();
   loadIssues();
   loadStats();
   connectSSE();
+  bindFilters();
+
+  document.getElementById("btn-refresh").addEventListener("click", () => {
+    loadIssues();
+    loadStats();
+  });
+  document.getElementById("btn-poll-now").addEventListener("click", triggerPoll);
+  document.getElementById("btn-save-prefs").addEventListener("click", savePreferences);
+
   setInterval(loadStats, 15000);
 });

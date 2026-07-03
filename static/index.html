@@ -33,6 +33,35 @@
         </div>
       </div>
 
+      <div class="poll-status" id="poll-status">
+        <span class="poll-label">Last poll</span>
+        <span class="poll-value" id="last-poll-text">Waiting...</span>
+      </div>
+
+      <div class="sidebar-actions">
+        <button class="btn btn-primary" id="btn-poll-now">Poll Now</button>
+        <button class="btn btn-secondary" id="btn-refresh">Refresh</button>
+      </div>
+
+      <details class="preferences-panel">
+        <summary>Preferences</summary>
+        <div class="pref-form">
+          <label>Languages (comma-separated)
+            <input type="text" id="pref-languages" value="javascript,python,go,rust" />
+          </label>
+          <label>Labels (comma-separated)
+            <input type="text" id="pref-labels" value="good first issue,help wanted,open source,open-source" />
+          </label>
+          <label>Min repo stars
+            <input type="number" id="pref-min-stars" value="10" min="0" />
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="pref-show-dismissed" /> Show dismissed
+          </label>
+          <button class="btn btn-secondary btn-sm" id="btn-save-prefs">Save Preferences</button>
+        </div>
+      </details>
+
       <div class="connection-status">
         <span class="status-dot" id="sse-dot"></span>
         <span id="sse-label">Connecting...</span>
@@ -41,14 +70,43 @@
 
     <main class="feed">
       <header class="feed-header">
-        <h1>Live Issue Feed</h1>
-        <p class="subtitle">Open-source opportunities with AI triage reports</p>
+        <div>
+          <h1>Live Issue Feed</h1>
+          <p class="subtitle">Open-source opportunities with AI triage reports</p>
+        </div>
       </header>
+
+      <div class="toolbar">
+        <select id="filter-language" class="filter-select">
+          <option value="">All languages</option>
+          <option value="javascript">JavaScript</option>
+          <option value="python">Python</option>
+          <option value="go">Go</option>
+          <option value="rust">Rust</option>
+        </select>
+        <select id="filter-status" class="filter-select">
+          <option value="">All statuses</option>
+          <option value="complete">Complete</option>
+          <option value="triaging">Triaging</option>
+          <option value="extracting">Extracting</option>
+          <option value="error">Error</option>
+          <option value="pending">Pending</option>
+        </select>
+        <select id="filter-label" class="filter-select">
+          <option value="">All labels</option>
+          <option value="help wanted">help wanted</option>
+          <option value="good first issue">good first issue</option>
+          <option value="open source">open source</option>
+        </select>
+        <label class="checkbox-label toolbar-check">
+          <input type="checkbox" id="filter-bookmarked" /> Bookmarked only
+        </label>
+      </div>
 
       <div id="issue-list" class="issue-list">
         <div class="empty-state" id="empty-state">
           <p>Waiting for issues...</p>
-          <span>The daemon polls GitHub every 5 minutes.</span>
+          <span id="empty-subtitle">The daemon polls GitHub every 5 minutes.</span>
         </div>
       </div>
     </main>

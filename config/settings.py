@@ -16,9 +16,13 @@ class Settings(BaseSettings):
     database_path: Path = Path("./data/triage.db")
     poll_interval_seconds: int = 300
     git_clone_timeout_seconds: int = 60
-    max_file_bytes: int = 50000
+    max_file_bytes: int = 20000
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+    min_repo_stars: int = 10
+    github_webhook_secret: str = ""
+    search_per_page: int = 30
+    search_max_pages: int = 3
 
 
 settings = Settings()
