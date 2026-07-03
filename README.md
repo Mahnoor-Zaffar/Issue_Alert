@@ -50,6 +50,15 @@ uvicorn api.main:app --host 127.0.0.1 --port 8000
 
 Open http://127.0.0.1:8000
 
+### GitHub Pages (static UI preview)
+
+The dashboard UI is also deployed to GitHub Pages on push to `main`.
+
+1. In repo **Settings → Pages**, set source to **GitHub Actions**
+2. Push to `main` — the `Deploy GitHub Pages` workflow publishes `docs/`
+
+The live API/daemon still runs locally. GitHub Pages hosts the static UI only.
+
 ### Option C — Docker Compose
 
 ```bash

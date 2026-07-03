@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GitHub Issue Triage</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+        </svg>
+        <span>Issue Triage</span>
+      </div>
+
+      <div class="stats">
+        <div class="stat-card">
+          <span class="stat-value" id="stat-total">0</span>
+          <span class="stat-label">Total Issues</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="stat-pending">0</span>
+          <span class="stat-label">In Progress</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="stat-complete">0</span>
+          <span class="stat-label">Triaged</span>
+        </div>
+      </div>
+
+      <div class="poll-status" id="poll-status">
+        <span class="poll-label">Last poll</span>
+        <span class="poll-value" id="last-poll-text">Waiting...</span>
+      </div>
+
+      <div class="sidebar-actions">
+        <button class="btn btn-primary" id="btn-poll-now">Poll Now</button>
+        <button class="btn btn-secondary" id="btn-refresh">Refresh</button>
+      </div>
+
+      <details class="preferences-panel">
+        <summary>Preferences</summary>
+        <div class="pref-form">
+          <label>Languages (comma-separated)
+            <input type="text" id="pref-languages" value="javascript,python,go,rust" />
+          </label>
+          <label>Labels (comma-separated)
+            <input type="text" id="pref-labels" value="good first issue,help wanted,open source,open-source" />
+          </label>
+          <label>Min repo stars
+            <input type="number" id="pref-min-stars" value="10" min="0" />
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="pref-show-dismissed" /> Show dismissed
+          </label>
+          <button class="btn btn-secondary btn-sm" id="btn-save-prefs">Save Preferences</button>
+        </div>
+      </details>
+
+      <div class="connection-status">
+        <span class="status-dot" id="sse-dot"></span>
+        <span id="sse-label">Connecting...</span>
+      </div>
+    </aside>
+
+    <main class="feed">
+      <header class="feed-header">
+        <div>
+          <h1>Live Issue Feed</h1>
+          <p class="subtitle">Open-source opportunities with AI triage reports</p>
+        </div>
+      </header>
+
+      <div class="toolbar">
+        <select id="filter-language" class="filter-select">
+          <option value="">All languages</option>
+          <option value="javascript">JavaScript</option>
+          <option value="python">Python</option>
+          <option value="go">Go</option>
+          <option value="rust">Rust</option>
+        </select>
+        <select id="filter-status" class="filter-select">
+          <option value="">All statuses</option>
+          <option value="complete">Complete</option>
+          <option value="triaging">Triaging</option>
+          <option value="extracting">Extracting</option>
+          <option value="error">Error</option>
+          <option value="pending">Pending</option>
+        </select>
+        <select id="filter-label" class="filter-select">
+          <option value="">All labels</option>
+          <option value="help wanted">help wanted</option>
+          <option value="good first issue">good first issue</option>
+          <option value="open source">open source</option>
+        </select>
+        <label class="checkbox-label toolbar-check">
+          <input type="checkbox" id="filter-bookmarked" /> Bookmarked only
+        </label>
+      </div>
+
+      <div id="issue-list" class="issue-list">
+        <div class="empty-state" id="empty-state">
+          <p>Waiting for issues...</p>
+          <span id="empty-subtitle">The daemon polls GitHub every 5 minutes.</span>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
