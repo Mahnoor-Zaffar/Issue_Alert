@@ -1,7 +1,7 @@
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,11 +14,41 @@ MIGRATIONS = [
     "ALTER TABLE issues ADD COLUMN score REAL NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN bookmarked INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN dismissed INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE issues ADD COLUMN viewed_at TEXT",
+    "ALTER TABLE issues ADD COLUMN github_created_at TEXT",
 ]
 
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _freshness_cutoff_iso() -> str:
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        minutes=settings.issue_discovery_window_minutes
+    )
+    return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _visible_issue_clauses(
+    *,
+    show_dismissed: bool = False,
+    include_stale: bool = False,
+) -> tuple[list[str], list[Any]]:
+    """SQL filters for the live feed: unviewed, fresh, unclaimed issues only."""
+    clauses: list[str] = []
+    params: list[Any] = []
+
+    if not show_dismissed:
+        clauses.append("i.dismissed = 0")
+    clauses.append("i.viewed_at IS NULL")
+    if not include_stale:
+        clauses.append(
+            "(i.github_created_at IS NOT NULL AND i.github_created_at >= ?)"
+        )
+        params.append(_freshness_cutoff_iso())
+
+    return clauses, params
 
 
 def _configure_connection(conn: sqlite3.Connection) -> None:
@@ -83,6 +113,7 @@ def init_db() -> None:
         conn.executescript(SCHEMA_PATH.read_text())
         _migrate(conn)
         _ensure_indexes(conn)
+    purge_stale_issues()
 
 
 def is_issue_seen(github_id: int) -> bool:
@@ -129,6 +160,7 @@ def insert_issue(issue: dict[str, Any]) -> int:
     score = issue.get("score")
     if score is None:
         score = compute_score(issue)
+    github_created_at = issue.get("created_at") or now
 
     with get_connection() as conn:
         cursor = conn.execute(
@@ -136,8 +168,8 @@ def insert_issue(issue: dict[str, Any]) -> int:
             INSERT INTO issues (
                 github_id, title, body, html_url, repo_full_name,
                 repo_clone_url, labels, language, repo_stars, score,
-                state, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                state, status, github_created_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 issue["github_id"],
@@ -152,6 +184,7 @@ def insert_issue(issue: dict[str, Any]) -> int:
                 score,
                 issue.get("state", "open"),
                 issue.get("status", "pending"),
+                github_created_at,
                 now,
                 now,
             ),
@@ -173,6 +206,32 @@ def update_issue_status(
             """,
             (status, error_message, _utcnow(), issue_id),
         )
+
+
+def mark_issue_viewed(issue_id: int) -> bool:
+    """Remove an issue from the feed once the user has viewed it."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT id FROM issues WHERE id = ?", (issue_id,)).fetchone()
+        if not row:
+            return False
+        conn.execute("DELETE FROM issues WHERE id = ?", (issue_id,))
+        return True
+
+
+def purge_stale_issues() -> int:
+    """Delete viewed or expired issues so the feed stays fresh-only."""
+    cutoff = _freshness_cutoff_iso()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM issues
+            WHERE viewed_at IS NOT NULL
+               OR github_created_at IS NULL
+               OR github_created_at < ?
+            """,
+            (cutoff,),
+        )
+        return cursor.rowcount
 
 
 def set_issue_flag(issue_id: int, field: str, value: bool) -> None:
@@ -235,11 +294,12 @@ def list_issues(
     show_dismissed: bool = False,
     bookmarked_only: bool = False,
 ) -> list[dict[str, Any]]:
-    clauses = ["1=1"]
-    params: list[Any] = []
+    visible_clauses, visible_params = _visible_issue_clauses(
+        show_dismissed=show_dismissed
+    )
+    clauses = list(visible_clauses)
+    params: list[Any] = list(visible_params)
 
-    if not show_dismissed:
-        clauses.append("i.dismissed = 0")
     if language:
         clauses.append("LOWER(i.language) = LOWER(?)")
         params.append(language)
@@ -264,7 +324,7 @@ def list_issues(
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
             WHERE {where}
-            ORDER BY i.score DESC, i.updated_at DESC
+            ORDER BY i.github_created_at DESC, i.score DESC
             LIMIT ? OFFSET ?
             """,
             params,
@@ -273,44 +333,66 @@ def list_issues(
 
 
 def get_issues_updated_since(since: str) -> list[dict[str, Any]]:
+    visible_clauses, visible_params = _visible_issue_clauses()
+    where = " AND ".join(["i.updated_at > ?"] + visible_clauses)
+    params: list[Any] = [since, *visible_params]
+
     with get_connection() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT i.*,
                    t.architecture_context, t.issue_breakdown,
                    t.action_plan, t.raw_response AS triage_raw
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
-            WHERE i.updated_at > ?
+            WHERE {where}
             ORDER BY i.updated_at ASC
             """,
-            (since,),
+            params,
         ).fetchall()
         return [_row_to_issue(row) for row in rows]
 
 
 def get_stats() -> dict[str, Any]:
+    visible_clauses, visible_params = _visible_issue_clauses()
+    where = " AND ".join(visible_clauses)
+
     with get_connection() as conn:
         total = conn.execute(
-            "SELECT COUNT(*) FROM issues WHERE dismissed = 0"
+            f"SELECT COUNT(*) FROM issues i WHERE {where}",
+            visible_params,
         ).fetchone()[0]
         pending = conn.execute(
-            """
-            SELECT COUNT(*) FROM issues
-            WHERE dismissed = 0 AND status NOT IN ('complete', 'error')
-            """
+            f"""
+            SELECT COUNT(*) FROM issues i
+            WHERE {where} AND i.status NOT IN ('complete', 'error')
+            """,
+            visible_params,
         ).fetchone()[0]
         complete = conn.execute(
-            "SELECT COUNT(*) FROM issues WHERE status = 'complete' AND dismissed = 0"
+            f"""
+            SELECT COUNT(*) FROM issues i
+            WHERE {where} AND i.status = 'complete'
+            """,
+            visible_params,
         ).fetchone()[0]
         errors = conn.execute(
-            "SELECT COUNT(*) FROM issues WHERE status = 'error' AND dismissed = 0"
+            f"""
+            SELECT COUNT(*) FROM issues i
+            WHERE {where} AND i.status = 'error'
+            """,
+            visible_params,
         ).fetchone()[0]
         bookmarked = conn.execute(
-            "SELECT COUNT(*) FROM issues WHERE bookmarked = 1 AND dismissed = 0"
+            f"""
+            SELECT COUNT(*) FROM issues i
+            WHERE {where} AND i.bookmarked = 1
+            """,
+            visible_params,
         ).fetchone()[0]
         last_updated = conn.execute(
-            "SELECT MAX(updated_at) FROM issues"
+            f"SELECT MAX(i.updated_at) FROM issues i WHERE {where}",
+            visible_params,
         ).fetchone()[0]
 
         daemon = conn.execute(

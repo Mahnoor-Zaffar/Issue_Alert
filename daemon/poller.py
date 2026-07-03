@@ -1,4 +1,6 @@
 import logging
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -9,9 +11,30 @@ from db.store import get_preferences
 
 logger = logging.getLogger(__name__)
 
+_LINKED_PR_BODY_RE = re.compile(
+    r"github\.com/[\w.-]+/[\w.-]+/pull/\d+",
+    re.IGNORECASE,
+)
 
-def build_search_query(prefs: dict[str, Any] | None = None) -> str:
-    """Build GitHub issue search query.
+
+def freshness_cutoff_utc(
+    window_minutes: int | None = None,
+) -> datetime:
+    """UTC timestamp for the start of the discovery window."""
+    minutes = window_minutes or settings.issue_discovery_window_minutes
+    return datetime.now(timezone.utc) - timedelta(minutes=minutes)
+
+
+def format_created_filter(cutoff: datetime) -> str:
+    """GitHub Search API ``created:>=`` qualifier in UTC ISO-8601 form."""
+    return f"created:>={cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+
+
+def build_search_query(
+    prefs: dict[str, Any] | None = None,
+    cutoff: datetime | None = None,
+) -> str:
+    """Build GitHub issue search query for pristine, unclaimed recent issues.
 
     Note: ``language:`` qualifiers return zero results when OR-combined in issue
     search, so language filtering is applied after fetch using repo metadata.
@@ -19,16 +42,56 @@ def build_search_query(prefs: dict[str, Any] | None = None) -> str:
     prefs = prefs or get_preferences()
     labels = prefs.get("labels") or []
     min_stars = prefs.get("min_stars", settings.min_repo_stars)
+    cutoff = cutoff or freshness_cutoff_utc()
 
     label_clause = " OR ".join(f'label:"{label}"' for label in labels)
 
-    parts = ["is:issue", "is:open"]
+    parts = [
+        "is:issue",
+        "is:open",
+        "no:assignee",
+        "comments:0",
+        format_created_filter(cutoff),
+    ]
     if label_clause:
         parts.append(f"({label_clause})")
     if min_stars > 0:
         parts.append(f"stars:>{min_stars}")
 
     return " ".join(parts)
+
+
+def passes_claim_verification(
+    item: dict[str, Any],
+    cutoff: datetime | None = None,
+) -> bool:
+    """Secondary check: issue is open, unassigned, uncommented, and unclaimed."""
+    cutoff = cutoff or freshness_cutoff_utc()
+
+    if item.get("state") != "open":
+        return False
+
+    if "pull_request" in item:
+        return False
+
+    if item.get("comments", 0) != 0:
+        return False
+
+    assignees = item.get("assignees") or []
+    if assignees or item.get("assignee"):
+        return False
+
+    body = item.get("body") or ""
+    if _LINKED_PR_BODY_RE.search(body):
+        return False
+
+    created_at = item.get("created_at")
+    if created_at:
+        created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        if created < cutoff:
+            return False
+
+    return True
 
 
 def matches_language_preference(
@@ -63,7 +126,8 @@ class GitHubPoller:
 
     async def fetch_issues(self) -> tuple[list[dict[str, Any]], int]:
         prefs = get_preferences()
-        query = build_search_query(prefs)
+        cutoff = freshness_cutoff_utc()
+        query = build_search_query(prefs, cutoff)
         all_items, total_count = await self._search_pages(query)
 
         if total_count == 0 and len(prefs.get("labels", [])) > 1:
@@ -72,8 +136,9 @@ class GitHubPoller:
             )
             seen_ids: set[int] = set()
             all_items = []
+            total_count = 0
             for label in prefs.get("labels", []):
-                label_query = build_search_query({**prefs, "labels": [label]})
+                label_query = build_search_query({**prefs, "labels": [label]}, cutoff)
                 items, count = await self._search_pages(label_query, max_pages=1)
                 if count:
                     total_count += count
@@ -83,14 +148,24 @@ class GitHubPoller:
                         all_items.append(item)
 
         logger.info(
-            "GitHub search: total_count=%d, items=%d, query=%s",
+            "GitHub search: total_count=%d, raw_items=%d, query=%s",
             total_count,
             len(all_items),
             query,
         )
 
+        pristine_items = [
+            item for item in all_items if passes_claim_verification(item, cutoff)
+        ]
+        rejected = len(all_items) - len(pristine_items)
+        if rejected:
+            logger.info(
+                "Claim verification rejected %d issue(s) (assigned, commented, linked PR, or stale)",
+                rejected,
+            )
+
         normalized = []
-        for item in all_items:
+        for item in pristine_items:
             issue = await self._normalize_issue(item)
             normalized.append(issue)
 
@@ -122,7 +197,7 @@ class GitHubPoller:
 
         params = {
             "q": query,
-            "sort": "updated",
+            "sort": "created",
             "order": "desc",
             "per_page": settings.search_per_page,
             "page": page,
@@ -201,6 +276,10 @@ class GitHubPoller:
             "language": language,
             "repo_stars": repo_info.get("stars", 0),
             "state": item.get("state", "open"),
+            "created_at": item.get("created_at"),
+            "comments": item.get("comments", 0),
+            "assignees": item.get("assignees") or [],
+            "assignee": item.get("assignee"),
         }
 
     def _detect_language_from_text(
@@ -215,6 +294,13 @@ class GitHubPoller:
     def issue_from_webhook(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         issue = payload.get("issue")
         if not issue:
+            return None
+
+        if not passes_claim_verification(issue):
+            logger.debug(
+                "Webhook issue %s rejected by claim verification",
+                issue.get("id"),
+            )
             return None
 
         repo = payload.get("repository", {})
@@ -235,4 +321,8 @@ class GitHubPoller:
             "language": (repo.get("language") or "").lower() or None,
             "repo_stars": repo.get("stargazers_count", 0),
             "state": issue.get("state", "open"),
+            "created_at": issue.get("created_at"),
+            "comments": issue.get("comments", 0),
+            "assignees": issue.get("assignees") or [],
+            "assignee": issue.get("assignee"),
         }

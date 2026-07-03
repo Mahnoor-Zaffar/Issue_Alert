@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS issues (
     score           REAL NOT NULL DEFAULT 0,
     bookmarked      INTEGER NOT NULL DEFAULT 0,
     dismissed       INTEGER NOT NULL DEFAULT 0,
+    viewed_at       TEXT,
+    github_created_at TEXT,
     state           TEXT NOT NULL DEFAULT 'open',
     status          TEXT NOT NULL DEFAULT 'pending',
     error_message   TEXT,

@@ -136,7 +136,8 @@ Copy `.env.example` to `.env` and fill in required values:
 | `GITHUB_TOKEN` | Yes | — | GitHub PAT for Search + Repos API |
 | `OPENAI_API_KEY` | Yes | — | OpenAI API key |
 | `OPENAI_MODEL` | No | `gpt-4o-mini` | Model used for triage |
-| `POLL_INTERVAL_SECONDS` | No | `300` | Seconds between poll cycles |
+| `POLL_INTERVAL_SECONDS` | No | `60` | Seconds between poll cycles |
+| `ISSUE_DISCOVERY_WINDOW_MINUTES` | No | `10` | Only fetch issues created within this window |
 | `GIT_CLONE_TIMEOUT_SECONDS` | No | `60` | Timeout for shallow clones |
 | `MAX_FILE_BYTES` | No | `20000` | Max bytes read per repo file |
 | `MIN_REPO_STARS` | No | `0` | Minimum stars in search query |
@@ -226,7 +227,7 @@ Then restart the daemon or click **Poll Now** on the dashboard.
 | `0 fetched, 0 new` in logs | Overly restrictive search query | Lower min stars in Preferences; defaults use `help wanted` + `good first issue` |
 | Triage status `error` | Invalid or expired OpenAI key | Verify `OPENAI_API_KEY` in `.env` |
 | No desktop notifications | plyer unsupported in environment | Non-fatal; issues still process normally |
-| Pages deploy fails | Transient GitHub error or branch source still enabled | Re-run the workflow from Actions; ensure Pages source is **GitHub Actions** only |
+| Pages deploy fails | Competing deploys or branch source still enabled | In **Settings → Pages**, set Source to **GitHub Actions** only (disable branch deploy). Re-run the workflow if needed. |
 
 ---
 

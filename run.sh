@@ -20,11 +20,11 @@ fi
 mkdir -p data
 
 echo "Starting daemon..."
-python -m daemon.main &
+.venv/bin/python -m daemon.main &
 DAEMON_PID=$!
 
 echo "Starting dashboard on http://127.0.0.1:8000 ..."
-uvicorn api.main:app --host 127.0.0.1 --port 8000 &
+.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 &
 API_PID=$!
 
 cleanup() {

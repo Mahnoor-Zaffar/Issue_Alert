@@ -21,6 +21,7 @@ from db.store import (
     get_preferences,
     get_stats,
     list_issues,
+    mark_issue_viewed,
     request_poll,
     save_preferences,
     set_issue_flag,
@@ -87,11 +88,21 @@ async def api_bookmark_issue(issue_id: int, body: FlagBody):
     return get_issue(issue_id)
 
 
+@router.post("/api/issues/{issue_id}/view")
+async def api_mark_issue_viewed(issue_id: int):
+    if not mark_issue_viewed(issue_id):
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return {"id": issue_id, "removed": True}
+
+
 @router.post("/api/issues/{issue_id}/dismiss")
 async def api_dismiss_issue(issue_id: int, body: FlagBody):
     if not get_issue(issue_id):
         raise HTTPException(status_code=404, detail="Issue not found")
-    set_issue_flag(issue_id, "dismissed", body.value)
+    if body.value:
+        mark_issue_viewed(issue_id)
+        return {"id": issue_id, "removed": True}
+    set_issue_flag(issue_id, "dismissed", False)
     return get_issue(issue_id)
 
 

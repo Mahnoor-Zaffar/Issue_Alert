@@ -5,7 +5,11 @@ from typing import Any
 from config.settings import settings
 from daemon.context_extractor import extract_repo_context
 from daemon.notifier import notify_new_issue
-from daemon.poller import GitHubPoller, matches_language_preference
+from daemon.poller import (
+    GitHubPoller,
+    matches_language_preference,
+    passes_claim_verification,
+)
 from daemon.triage import TriageEngine
 from db.store import (
     fetch_pending_webhooks,
@@ -17,6 +21,7 @@ from db.store import (
     is_poll_requested,
     mark_issue_seen,
     mark_webhook_processed,
+    purge_stale_issues,
     update_issue_status,
     update_poll_state,
 )
@@ -31,6 +36,14 @@ logger = logging.getLogger(__name__)
 async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine) -> bool:
     github_id = issue_data["github_id"]
     if is_issue_seen(github_id):
+        return False
+
+    if not passes_claim_verification(issue_data):
+        mark_issue_seen(github_id)
+        logger.info(
+            "Skipping issue %s — failed claim verification (assigned, commented, or linked PR)",
+            github_id,
+        )
         return False
 
     if not (issue_data.get("body") or "").strip() and not issue_data.get("title"):
@@ -106,6 +119,10 @@ async def process_webhooks(poller: GitHubPoller, triage_engine: TriageEngine) ->
 
 
 async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
+    purged = purge_stale_issues()
+    if purged:
+        logger.info("Purged %d stale or viewed issue(s) from feed", purged)
+
     await process_webhooks(poller, triage_engine)
 
     issues, total_count = await poller.fetch_issues()
@@ -155,7 +172,9 @@ async def run() -> None:
     triage_engine = TriageEngine()
 
     logger.info(
-        "Daemon started — polling every %ds", settings.poll_interval_seconds
+        "Daemon started — polling every %ds (discovery window: last %d minutes)",
+        settings.poll_interval_seconds,
+        settings.issue_discovery_window_minutes,
     )
 
     try:

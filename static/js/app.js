@@ -1,5 +1,6 @@
 const issueMap = new Map();
 let eventSource = null;
+let lastVisibleTotal = null;
 
 const IS_GITHUB_PAGES = location.hostname.endsWith("github.io");
 const API_BASE = window.API_BASE || "";
@@ -23,6 +24,56 @@ const STATUS_LABELS = {
   complete: "Complete",
   error: "Error",
 };
+
+function removeIssueCard(id, animate = true) {
+  const card = document.getElementById(`issue-${id}`);
+  issueMap.delete(id);
+
+  if (!card) {
+    maybeShowEmptyState();
+    return;
+  }
+
+  if (!animate) {
+    card.remove();
+    maybeShowEmptyState();
+    return;
+  }
+
+  anime({
+    targets: card,
+    opacity: 0,
+    translateX: 40,
+    duration: 400,
+    easing: "easeInOutQuad",
+    complete: () => {
+      card.remove();
+      maybeShowEmptyState();
+      loadStats();
+    },
+  });
+}
+
+function maybeShowEmptyState() {
+  const list = document.getElementById("issue-list");
+  if (issueMap.size === 0 && list && !document.getElementById("empty-state")) {
+    list.innerHTML = `
+      <div class="empty-state" id="empty-state">
+        <p>No fresh unclaimed issues right now</p>
+        <span id="empty-subtitle">Only issues from the last 10 minutes with zero comments appear here. Viewed issues are cleared automatically.</span>
+      </div>`;
+  }
+}
+
+async function markIssueViewed(id, { animate = true } = {}) {
+  if (!issueMap.has(id)) return;
+  try {
+    await fetch(apiUrl(`/api/issues/${id}/view`), { method: "POST" });
+  } catch {
+    /* ignore — card still removed locally */
+  }
+  removeIssueCard(id, animate);
+}
 
 function truncate(text, max = 200) {
   if (!text) return "";
@@ -69,7 +120,7 @@ function buildCard(issue) {
   const bookmarkClass = issue.bookmarked ? "btn-icon active" : "btn-icon";
 
   return `
-    <article class="${cardClass}" data-id="${issue.id}" id="issue-${issue.id}">
+    <article class="${cardClass}" data-id="${issue.id}" id="issue-${issue.id}" onclick="handleCardClick(event, ${issue.id})">
       <div class="card-header">
         <div>
           <div class="card-meta">
@@ -80,7 +131,7 @@ function buildCard(issue) {
             ${labels}
           </div>
           <h2 class="issue-title">
-            <a href="${issue.html_url}" target="_blank" rel="noopener">${escapeHtml(issue.title)}</a>
+            <a href="${issue.html_url}" target="_blank" rel="noopener" onclick="handleIssueLinkClick(event, ${issue.id})">${escapeHtml(issue.title)}</a>
           </h2>
         </div>
         <span class="status-pill status-${issue.status}" data-status="${issue.status}">
@@ -90,7 +141,7 @@ function buildCard(issue) {
       <p class="issue-body-preview">${escapeHtml(truncate(issue.body))}</p>
       ${triageHtml}
       ${issue.error_message ? `<div class="error-box"><strong>Error:</strong> ${escapeHtml(issue.error_message)}</div>` : ""}
-      <div class="card-actions">
+      <div class="card-actions" onclick="event.stopPropagation()">
         <button class="${bookmarkClass}" onclick="toggleBookmark(${issue.id})" title="Bookmark">★</button>
         <button class="btn-icon" onclick="dismissIssue(${issue.id})" title="Dismiss">✕</button>
         ${issue.triage ? `<button class="btn btn-secondary btn-sm" onclick="exportTriage(${issue.id})">Export MD</button>` : ""}
@@ -102,7 +153,7 @@ function buildCard(issue) {
 function buildTriageHtml(issue) {
   if (issue.status === "complete" && issue.triage) {
     return `
-      <button class="triage-toggle" onclick="toggleTriage(${issue.id})">
+      <button class="triage-toggle" onclick="event.stopPropagation(); toggleTriage(${issue.id})">
         View AI Triage Report
       </button>
       <div class="triage-sections" id="triage-${issue.id}">
@@ -163,7 +214,10 @@ function toggleTriage(id) {
       height: 0,
       duration: 400,
       easing: "easeInOutQuad",
-      complete: () => section.classList.remove("open"),
+      complete: () => {
+        section.classList.remove("open");
+        markIssueViewed(id);
+      },
     });
   } else {
     section.style.height = "auto";
@@ -181,6 +235,16 @@ function toggleTriage(id) {
       },
     });
   }
+}
+
+function handleCardClick(event, id) {
+  if (event.target.closest("a, button, .triage-sections, .triage-toggle")) return;
+  markIssueViewed(id);
+}
+
+function handleIssueLinkClick(event, id) {
+  event.stopPropagation();
+  markIssueViewed(id, { animate: false });
 }
 
 function buildQueryParams() {
@@ -250,8 +314,8 @@ async function loadIssues() {
   if (issues.length === 0) {
     document.getElementById("issue-list").innerHTML = `
       <div class="empty-state" id="empty-state">
-        <p>No issues match your filters</p>
-        <span id="empty-subtitle">Try clearing filters or click Poll Now.</span>
+        <p>No fresh unclaimed issues right now</p>
+        <span id="empty-subtitle">Only issues from the last 10 minutes with zero comments appear here. Viewed issues are cleared automatically.</span>
       </div>`;
     return;
   }
@@ -280,6 +344,11 @@ async function loadStats() {
     document.getElementById("stat-total").textContent = data.total ?? 0;
     document.getElementById("stat-pending").textContent = data.pending ?? 0;
     document.getElementById("stat-complete").textContent = data.complete ?? 0;
+
+    if (lastVisibleTotal !== null && data.total < lastVisibleTotal) {
+      await loadIssues();
+    }
+    lastVisibleTotal = data.total ?? 0;
 
     const pollParts = [];
     pollParts.push(formatPollTime(data.last_poll_at));
@@ -366,21 +435,7 @@ async function dismissIssue(id) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ value: true }),
   });
-  const card = document.getElementById(`issue-${id}`);
-  if (card) {
-    anime({
-      targets: card,
-      opacity: 0,
-      translateX: 40,
-      duration: 400,
-      easing: "easeInOutQuad",
-      complete: () => {
-        card.remove();
-        issueMap.delete(id);
-        loadStats();
-      },
-    });
-  }
+  removeIssueCard(id);
 }
 
 function exportTriage(id) {
@@ -414,6 +469,8 @@ window.toggleTriage = toggleTriage;
 window.toggleBookmark = toggleBookmark;
 window.dismissIssue = dismissIssue;
 window.exportTriage = exportTriage;
+window.handleCardClick = handleCardClick;
+window.handleIssueLinkClick = handleIssueLinkClick;
 
 function showPagesBanner() {
   const banner = document.createElement("div");
@@ -452,6 +509,10 @@ function connectSSE() {
     document.getElementById("stat-total").textContent = stats.total ?? 0;
     document.getElementById("stat-pending").textContent = stats.pending ?? 0;
     document.getElementById("stat-complete").textContent = stats.complete ?? 0;
+    if (lastVisibleTotal !== null && stats.total < lastVisibleTotal) {
+      loadIssues();
+    }
+    lastVisibleTotal = stats.total ?? 0;
     const pollParts = [
       formatPollTime(stats.last_poll_at),
       `${stats.last_poll_fetched ?? 0} fetched`,
