@@ -11,23 +11,37 @@ logger = logging.getLogger(__name__)
 
 
 def build_search_query(prefs: dict[str, Any] | None = None) -> str:
+    """Build GitHub issue search query.
+
+    Note: ``language:`` qualifiers return zero results when OR-combined in issue
+    search, so language filtering is applied after fetch using repo metadata.
+    """
     prefs = prefs or get_preferences()
     labels = prefs.get("labels") or []
-    languages = prefs.get("languages") or []
     min_stars = prefs.get("min_stars", settings.min_repo_stars)
 
     label_clause = " OR ".join(f'label:"{label}"' for label in labels)
-    lang_clause = " OR ".join(f"language:{lang}" for lang in languages)
 
     parts = ["is:issue", "is:open"]
     if label_clause:
         parts.append(f"({label_clause})")
-    if lang_clause:
-        parts.append(f"({lang_clause})")
     if min_stars > 0:
         parts.append(f"stars:>{min_stars}")
 
     return " ".join(parts)
+
+
+def matches_language_preference(
+    issue: dict[str, Any], prefs: dict[str, Any] | None = None
+) -> bool:
+    prefs = prefs or get_preferences()
+    preferred = {lang.lower() for lang in (prefs.get("languages") or [])}
+    if not preferred:
+        return True
+    language = (issue.get("language") or "").lower()
+    if not language:
+        return True
+    return language in preferred
 
 
 class GitHubPoller:
@@ -50,18 +64,23 @@ class GitHubPoller:
     async def fetch_issues(self) -> tuple[list[dict[str, Any]], int]:
         prefs = get_preferences()
         query = build_search_query(prefs)
-        all_items: list[dict[str, Any]] = []
-        total_count = 0
+        all_items, total_count = await self._search_pages(query)
 
-        for page in range(1, settings.search_max_pages + 1):
-            items, page_total = await self._fetch_page(query, page)
-            if page == 1:
-                total_count = page_total
-            if not items:
-                break
-            all_items.extend(items)
-            if len(items) < settings.search_per_page:
-                break
+        if total_count == 0 and len(prefs.get("labels", [])) > 1:
+            logger.warning(
+                "Combined label query returned 0 — falling back to per-label search"
+            )
+            seen_ids: set[int] = set()
+            all_items = []
+            for label in prefs.get("labels", []):
+                label_query = build_search_query({**prefs, "labels": [label]})
+                items, count = await self._search_pages(label_query, max_pages=1)
+                if count:
+                    total_count += count
+                for item in items:
+                    if item["id"] not in seen_ids:
+                        seen_ids.add(item["id"])
+                        all_items.append(item)
 
         logger.info(
             "GitHub search: total_count=%d, items=%d, query=%s",
@@ -76,6 +95,25 @@ class GitHubPoller:
             normalized.append(issue)
 
         return normalized, total_count
+
+    async def _search_pages(
+        self, query: str, max_pages: int | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
+        pages = max_pages or settings.search_max_pages
+        all_items: list[dict[str, Any]] = []
+        total_count = 0
+
+        for page in range(1, pages + 1):
+            items, page_total = await self._fetch_page(query, page)
+            if page == 1:
+                total_count = page_total
+            if not items:
+                break
+            all_items.extend(items)
+            if len(items) < settings.search_per_page:
+                break
+
+        return all_items, total_count
 
     async def _fetch_page(
         self, query: str, page: int

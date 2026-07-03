@@ -47,8 +47,8 @@ CREATE TABLE IF NOT EXISTS daemon_state (
 CREATE TABLE IF NOT EXISTS user_preferences (
     id              INTEGER PRIMARY KEY CHECK (id = 1),
     languages       TEXT NOT NULL DEFAULT '["javascript","python","go","rust"]',
-    labels          TEXT NOT NULL DEFAULT '["good first issue","help wanted","open source","open-source"]',
-    min_stars       INTEGER NOT NULL DEFAULT 10,
+    labels          TEXT NOT NULL DEFAULT '["good first issue","help wanted"]',
+    min_stars       INTEGER NOT NULL DEFAULT 0,
     show_dismissed  INTEGER NOT NULL DEFAULT 0
 );
 

@@ -51,6 +51,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
         except sqlite3.OperationalError:
             pass
 
+    row = conn.execute(
+        "SELECT labels FROM user_preferences WHERE id = 1"
+    ).fetchone()
+    if row:
+        labels = json.loads(row["labels"] or "[]")
+        if len(labels) > 2 or "open source" in labels or "open-source" in labels:
+            conn.execute(
+                """
+                UPDATE user_preferences
+                SET labels = '["good first issue","help wanted"]', min_stars = 0
+                WHERE id = 1
+                """
+            )
+
 
 def _ensure_indexes(conn: sqlite3.Connection) -> None:
     indexes = [
@@ -396,8 +410,8 @@ def save_preferences(prefs: dict[str, Any]) -> dict[str, Any]:
 def _default_preferences() -> dict[str, Any]:
     return {
         "languages": ["javascript", "python", "go", "rust"],
-        "labels": ["good first issue", "help wanted", "open source", "open-source"],
-        "min_stars": settings.min_repo_stars,
+        "labels": ["good first issue", "help wanted"],
+        "min_stars": 0,
         "show_dismissed": False,
     }
 

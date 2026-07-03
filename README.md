@@ -59,6 +59,8 @@ The dashboard UI is also deployed to GitHub Pages on push to `main`.
 
 The live API/daemon still runs locally. GitHub Pages hosts the static UI only.
 
+**Important:** In repo **Settings → Pages → Build and deployment**, set **Source** to **GitHub Actions** (not "Deploy from a branch"). The old `pages-build-deployment` workflow fails if branch deployment is still enabled alongside Actions.
+
 ### Option C — Docker Compose
 
 ```bash

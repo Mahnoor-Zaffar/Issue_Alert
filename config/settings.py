@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     max_file_bytes: int = 20000
     api_host: str = "127.0.0.1"
     api_port: int = 8000
-    min_repo_stars: int = 10
+    min_repo_stars: int = 0
     github_webhook_secret: str = ""
     search_per_page: int = 30
     search_max_pages: int = 3

@@ -5,10 +5,11 @@ from typing import Any
 from config.settings import settings
 from daemon.context_extractor import extract_repo_context
 from daemon.notifier import notify_new_issue
-from daemon.poller import GitHubPoller
+from daemon.poller import GitHubPoller, matches_language_preference
 from daemon.triage import TriageEngine
 from db.store import (
     fetch_pending_webhooks,
+    get_preferences,
     init_db,
     insert_issue,
     insert_triage_report,
@@ -115,6 +116,16 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
         if is_issue_seen(issue_data["github_id"]):
             skipped_seen += 1
             continue
+
+        if not matches_language_preference(issue_data, get_preferences()):
+            mark_issue_seen(issue_data["github_id"])
+            logger.debug(
+                "Skipping issue %s — language %s not in preferences",
+                issue_data["github_id"],
+                issue_data.get("language"),
+            )
+            continue
+
         if await process_issue(issue_data, triage_engine):
             new_count += 1
 
