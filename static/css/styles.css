@@ -646,6 +646,33 @@ body {
   padding: 12px 0;
 }
 
+/* ───── Priority Section ───── */
+
+#priority-section {
+  margin-bottom: 24px;
+}
+
+#priority-section h2::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--accent-yellow);
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+  animation: pulse-dot 2s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+#priority-repo-list {
+  margin-top: 8px;
+}
+
 /* ───── Responsive ───── */
 
 @media (max-width: 768px) {

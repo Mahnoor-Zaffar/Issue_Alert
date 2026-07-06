@@ -18,6 +18,7 @@ from daemon.triage import TriageEngine
 from db.store import (
     fetch_pending_webhooks,
     get_preferences,
+    get_priority_repos,
     init_db,
     insert_issue,
     insert_triage_report,
@@ -88,7 +89,7 @@ def _passes_quality_gate(issue: dict[str, Any]) -> bool:
     return True
 
 
-async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine) -> bool:
+async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine, notify: bool = True) -> bool:
     github_id = issue_data["github_id"]
     if is_issue_seen(github_id):
         return False
@@ -105,11 +106,13 @@ async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine)
     mark_issue_seen(github_id)
     logger.info("New issue #%d: %s", issue_id, issue_data["title"])
 
-    notify_new_issue(
-        issue_data["title"],
-        issue_data["repo_full_name"],
-        issue_data["html_url"],
-    )
+    if notify:
+        notify_new_issue(
+            issue_data["title"],
+            issue_data["repo_full_name"],
+            issue_data["html_url"],
+            priority=issue_data.get("is_priority", False),
+        )
     update_issue_status(issue_id, "notified")
 
     update_issue_status(issue_id, "extracting")
@@ -175,6 +178,20 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
 
     await process_webhooks(poller, triage_engine)
 
+    priority_issues = await poller.fetch_priority_issues()
+    priority_new = 0
+    for issue_data in priority_issues:
+        if is_issue_seen(issue_data["github_id"]):
+            continue
+        if not matches_label_preference(issue_data, get_preferences()):
+            mark_issue_seen(issue_data["github_id"])
+            continue
+        if not _passes_quality_gate(issue_data):
+            mark_issue_seen(issue_data["github_id"])
+            continue
+        if await process_issue(issue_data, triage_engine, notify=True):
+            priority_new += 1
+
     issues, total_count, search_note = await poller.fetch_issues()
     new_count = 0
     skipped_seen = 0
@@ -206,7 +223,7 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
             mark_issue_seen(issue_data["github_id"])
             continue
 
-        if await process_issue(issue_data, triage_engine):
+        if await process_issue(issue_data, triage_engine, notify=False):
             new_count += 1
 
     if search_note:
@@ -227,11 +244,15 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
         message = None
 
     update_poll_state(len(issues), new_count, total_count, message)
+    parts = [
+        f"{len(issues)} fetched, {new_count} new",
+        f"{skipped_seen} already seen" if skipped_seen else None,
+        f"{priority_new} priority" if priority_new else None,
+    ]
+    detail = ", ".join(p for p in parts if p)
     logger.info(
-        "Poll cycle complete: %d fetched, %d new, %d already seen (total on GitHub: %d)",
-        len(issues),
-        new_count,
-        skipped_seen,
+        "Poll cycle complete: %s (total on GitHub: %d)",
+        detail,
         total_count,
     )
 

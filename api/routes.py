@@ -14,14 +14,17 @@ from sse_starlette.sse import EventSourceResponse
 
 from config.settings import settings
 from db.store import (
+    add_priority_repo,
     clear_all_data,
     enqueue_webhook,
     get_issue,
     get_issues_updated_since,
     get_preferences,
+    get_priority_repos,
     get_stats,
     list_issues,
     mark_issue_viewed,
+    remove_priority_repo,
     request_poll,
     save_preferences,
     set_issue_flag,
@@ -44,6 +47,10 @@ class FlagBody(BaseModel):
     value: bool = True
 
 
+class RepoBody(BaseModel):
+    full_name: str
+
+
 @router.get("/")
 async def serve_index():
     return FileResponse(STATIC_DIR / "index.html")
@@ -58,6 +65,7 @@ async def api_list_issues(
     label: str | None = None,
     show_dismissed: bool = False,
     bookmarked_only: bool = False,
+    is_priority: bool | None = None,
 ):
     return {
         "issues": list_issues(
@@ -68,6 +76,7 @@ async def api_list_issues(
             label=label,
             show_dismissed=show_dismissed,
             bookmarked_only=bookmarked_only,
+            is_priority=is_priority,
         )
     }
 
@@ -143,6 +152,32 @@ async def api_trigger_poll():
 async def api_clear_data():
     clear_all_data()
     return {"status": "cleared"}
+
+
+@router.get("/api/issues/priority")
+async def api_priority_issues():
+    return {"issues": list_issues(is_priority=True)}
+
+
+@router.get("/api/priority-repos")
+async def api_get_priority_repos():
+    return {"repos": get_priority_repos()}
+
+
+@router.post("/api/priority-repos")
+async def api_add_priority_repo(body: RepoBody):
+    result = add_priority_repo(body.full_name)
+    if result is None:
+        raise HTTPException(status_code=400, detail="Invalid or duplicate repo (format: owner/repo)")
+    request_poll()
+    return result
+
+
+@router.delete("/api/priority-repos/{repo_id}")
+async def api_remove_priority_repo(repo_id: int):
+    if not remove_priority_repo(repo_id):
+        raise HTTPException(status_code=404, detail="Repo not found")
+    return {"removed": True}
 
 
 @router.post("/api/webhooks/github")

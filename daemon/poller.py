@@ -7,7 +7,7 @@ import httpx
 
 from config.settings import settings
 from daemon.rate_limiter import GitHubRateLimiter
-from db.store import get_last_poll_time, get_preferences
+from db.store import get_last_poll_time, get_preferences, get_priority_repos
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,19 @@ def build_search_query(
     if min_stars > 0:
         parts.append(f"stars:>{min_stars}")
 
+    return " ".join(parts)
+
+
+def build_priority_query(full_name: str, cutoff: datetime | None = None) -> str:
+    cutoff = cutoff or freshness_cutoff_utc()
+    parts = [
+        "is:issue",
+        "is:open",
+        format_created_filter(cutoff),
+        f"repo:{full_name}",
+    ]
+    if settings.max_issue_comments == 0:
+        parts.append("comments:0")
     return " ".join(parts)
 
 
@@ -172,6 +185,24 @@ class GitHubPoller:
             normalized.append(issue)
 
         return normalized, total_count, None
+
+    async def fetch_priority_issues(self) -> list[dict[str, Any]]:
+        cutoff = freshness_cutoff_utc()
+        repos = get_priority_repos()
+        all_issues: list[dict[str, Any]] = []
+        for r in repos:
+            query = build_priority_query(r["full_name"], cutoff)
+            items, _, ok = await self._search_pages(query, max_pages=1)
+            if not ok:
+                continue
+            for item in items:
+                if passes_claim_verification(item, cutoff):
+                    issue = await self._normalize_issue(item)
+                    issue["is_priority"] = True
+                    all_issues.append(issue)
+        if all_issues:
+            logger.info("Found %d priority issue(s)", len(all_issues))
+        return all_issues
 
     async def _search_pages(
         self, query: str, max_pages: int | None = None

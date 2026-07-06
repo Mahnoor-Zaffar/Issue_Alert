@@ -1,18 +1,19 @@
 import logging
-
-from plyer import notification
+import subprocess
+import shlex
 
 logger = logging.getLogger(__name__)
 
 
-def notify_new_issue(title: str, repo: str, url: str) -> None:
+def notify_new_issue(title: str, repo: str, url: str, priority: bool = False) -> None:
+    prefix = "🔔 " if priority else ""
     try:
-        notification.notify(
-            title=f"New Issue: {repo}",
-            message=f"{title}\n{url}",
-            app_name="GitHub Triage",
-            timeout=10,
+        script = f'display notification "{shlex.quote(title)}" with title "{shlex.quote(prefix + repo)}" subtitle "{shlex.quote(url)}"'
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            timeout=5,
         )
-        logger.info("Desktop notification sent for %s", title)
+        logger.info("Notification sent for %s%s", "priority " if priority else "", repo)
     except Exception:
-        logger.warning("Failed to send desktop notification", exc_info=True)
+        logger.warning("Failed to send notification", exc_info=True)

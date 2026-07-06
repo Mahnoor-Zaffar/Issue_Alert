@@ -67,5 +67,13 @@ CREATE INDEX IF NOT EXISTS idx_issues_updated_at ON issues(updated_at);
 CREATE INDEX IF NOT EXISTS idx_issues_github_id ON issues(github_id);
 CREATE INDEX IF NOT EXISTS idx_webhook_queue_processed ON webhook_queue(processed);
 
+CREATE TABLE IF NOT EXISTS priority_repos (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner       TEXT NOT NULL,
+    repo        TEXT NOT NULL,
+    full_name   TEXT NOT NULL UNIQUE,
+    added_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 INSERT OR IGNORE INTO daemon_state (id) VALUES (1);
 INSERT OR IGNORE INTO user_preferences (id) VALUES (1);

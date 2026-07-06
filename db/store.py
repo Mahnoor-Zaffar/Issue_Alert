@@ -17,6 +17,7 @@ MIGRATIONS = [
     "ALTER TABLE issues ADD COLUMN viewed_at TEXT",
     "ALTER TABLE issues ADD COLUMN github_created_at TEXT",
     "ALTER TABLE issues ADD COLUMN comments INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE issues ADD COLUMN is_priority INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -190,8 +191,9 @@ def insert_issue(issue: dict[str, Any]) -> int:
             INSERT INTO issues (
                 github_id, title, body, html_url, repo_full_name,
                 repo_clone_url, labels, language, repo_stars, score,
-                comments, state, status, github_created_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                comments, state, status, github_created_at, created_at,
+                updated_at, is_priority
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 issue["github_id"],
@@ -210,6 +212,7 @@ def insert_issue(issue: dict[str, Any]) -> int:
                 github_created_at,
                 now,
                 now,
+                issue.get("is_priority", False),
             ),
         )
         return cursor.lastrowid
@@ -320,6 +323,7 @@ def list_issues(
     label: str | None = None,
     show_dismissed: bool = False,
     bookmarked_only: bool = False,
+    is_priority: bool | None = None,
 ) -> list[dict[str, Any]]:
     visible_clauses, visible_params = _visible_issue_clauses(
         show_dismissed=show_dismissed, bookmarked_only=bookmarked_only
@@ -338,6 +342,9 @@ def list_issues(
         params.append(f'%"{label}"%')
     if bookmarked_only:
         clauses.append("i.bookmarked = 1")
+    if is_priority is not None:
+        clauses.append("i.is_priority = ?")
+        params.append(1 if is_priority else 0)
 
     where = " AND ".join(clauses)
     params.extend([limit, offset])
@@ -608,4 +615,37 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
         issue.pop("action_plan", None)
         issue.pop("triage_raw", None)
     issue["triage"] = triage
+    issue["is_priority"] = bool(issue.get("is_priority", False))
     return issue
+
+
+# ── Priority Repos ──────────────────────────────────────────
+
+def get_priority_repos() -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, owner, repo, full_name, added_at FROM priority_repos ORDER BY added_at"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_priority_repo(full_name: str) -> dict[str, Any] | None:
+    parts = full_name.strip().split("/")
+    if len(parts) != 2:
+        return None
+    owner, repo = parts
+    with get_connection() as conn:
+        try:
+            cursor = conn.execute(
+                "INSERT INTO priority_repos (owner, repo, full_name) VALUES (?, ?, ?)",
+                (owner, repo, full_name),
+            )
+            return {"id": cursor.lastrowid, "owner": owner, "repo": repo, "full_name": full_name}
+        except sqlite3.IntegrityError:
+            return None
+
+
+def remove_priority_repo(repo_id: int) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM priority_repos WHERE id = ?", (repo_id,))
+        return cursor.rowcount > 0

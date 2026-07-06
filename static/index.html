@@ -43,6 +43,17 @@
         <button class="btn btn-secondary" id="btn-refresh">Refresh</button>
       </div>
 
+      <details class="preferences-panel" id="priority-panel" open>
+        <summary>🔔 Priority Repos</summary>
+        <div class="pref-form">
+          <div style="display:flex;gap:6px">
+            <input type="text" id="input-priority-repo" placeholder="owner/repo" style="flex:1" />
+            <button class="btn btn-secondary btn-sm" id="btn-add-priority-repo">+</button>
+          </div>
+          <div id="priority-repo-list" style="font-size:0.82rem;color:var(--text-secondary)"></div>
+        </div>
+      </details>
+
       <details class="preferences-panel">
         <summary>Preferences</summary>
         <div class="pref-form">
@@ -101,8 +112,17 @@
         <label class="checkbox-label toolbar-check">
           <input type="checkbox" id="filter-bookmarked" /> Saved only
         </label>
+        <label class="checkbox-label toolbar-check">
+          <input type="checkbox" id="filter-priority" /> Priority only
+        </label>
       </div>
 
+      <div id="priority-section" style="display:none">
+        <h2 style="font-size:1.1rem;margin-bottom:12px;color:var(--accent-yellow)">🔔 Priority Issues</h2>
+        <div id="priority-list" class="issue-list" style="margin-bottom:24px"></div>
+      </div>
+
+      <h2 style="font-size:1.1rem;margin-bottom:12px;color:var(--text-secondary)" id="general-heading">General Feed</h2>
       <div id="issue-list" class="issue-list">
         <div class="empty-state" id="empty-state">
           <p>Waiting for issues...</p>

@@ -1,4 +1,5 @@
 const issueMap = new Map();
+const priorityMap = new Map();
 let eventSource = null;
 let lastVisibleTotal = null;
 
@@ -131,6 +132,10 @@ function buildCard(issue) {
     ? `<span class="badge badge-difficulty ${diff.level}">${diff.label}</span>`
     : "";
 
+  const priorityBadge = issue.is_priority
+    ? `<span class="badge badge-difficulty" style="background:rgba(245,200,66,0.15);color:var(--accent-yellow)">🔔 Priority</span>`
+    : "";
+
   const triageBtn = issue.status === "complete" && issue.triage
     ? `<button class="btn-view-triage" onclick="event.stopPropagation(); openTriagePanel(${issue.id})">View Report</button>`
     : issue.status === "error"
@@ -150,6 +155,7 @@ function buildCard(issue) {
             ${starsBadge}
             ${scoreBadge}
             ${diffBadge}
+            ${priorityBadge}
             ${labels}
           </div>
           <h2 class="issue-title">
@@ -223,7 +229,7 @@ function animateStatusComplete(pill) {
 /* ───── Slide-out Panel ───── */
 
 function openTriagePanel(id) {
-  const issue = issueMap.get(id);
+  const issue = issueMap.get(id) || priorityMap.get(id);
   if (!issue || !issue.triage) return;
 
   document.getElementById("panel-title").textContent = issue.title;
@@ -259,6 +265,7 @@ function buildQueryParams() {
   if (filters.label) params.set("label", filters.label);
   if (filters.bookmarked_only) params.set("bookmarked_only", "true");
   if (filters.show_dismissed) params.set("show_dismissed", "true");
+  if (filters.priority_only) params.set("is_priority", "true");
   return params.toString();
 }
 
@@ -314,14 +321,15 @@ async function loadIssues() {
         <p>No fresh unclaimed issues right now</p>
         <span id="empty-subtitle">Unclaimed issues from 1000+ star repos (last 7 days, sorted by activity). Click ★ to save favorites.</span>
       </div>`;
-    return;
+  } else {
+    issues.reverse().forEach((issue, i) => {
+      upsertIssue(issue, false);
+      const card = document.getElementById(`issue-${issue.id}`);
+      if (card) animateCardIn(card, i * 60);
+    });
   }
 
-  issues.reverse().forEach((issue, i) => {
-    upsertIssue(issue, false);
-    const card = document.getElementById(`issue-${issue.id}`);
-    if (card) animateCardIn(card, i * 60);
-  });
+  await loadPriorityIssues();
 }
 
 const DEFAULT_EMPTY_SUBTITLE =
@@ -435,6 +443,74 @@ async function dismissIssue(id) {
     body: JSON.stringify({ value: true }),
   });
   removeIssueCard(id);
+  removePriorityCard(id);
+}
+
+// ── Priority Repos ────────────────────────────────────────
+
+async function loadPriorityRepos() {
+  try {
+    const res = await fetch(apiUrl("/api/priority-repos"));
+    const data = await res.json();
+    const list = document.getElementById("priority-repo-list");
+    list.innerHTML = (data.repos || []).map((r) =>
+      `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 4px 2px 0;padding:2px 8px;background:rgba(245,200,66,0.1);border-radius:4px;font-size:0.78rem">
+        ${r.full_name}
+        <button onclick="removePriorityRepo(${r.id})" style="background:none;border:none;color:var(--accent-red);cursor:pointer;font-size:0.85rem;padding:0;line-height:1">✕</button>
+      </span>`
+    ).join("") || "<span style='color:var(--text-muted)'>No repos added yet</span>";
+  } catch { /* ignore */ }
+}
+
+async function loadPriorityIssues() {
+  try {
+    const res = await fetch(apiUrl("/api/issues/priority"));
+    const data = await res.json();
+    const section = document.getElementById("priority-section");
+    const list = document.getElementById("priority-list");
+    priorityMap.clear();
+    if (!data.issues || data.issues.length === 0) {
+      section.style.display = "none";
+      return;
+    }
+    section.style.display = "block";
+    list.innerHTML = "";
+    data.issues.reverse().forEach((issue, i) => {
+      priorityMap.set(issue.id, issue);
+      list.insertAdjacentHTML("afterbegin", buildCard(issue));
+      const card = document.getElementById(`issue-${issue.id}`);
+      if (card) animateCardIn(card, i * 60);
+    });
+  } catch { section.style.display = "none"; }
+}
+
+function removePriorityCard(id) {
+  const card = document.getElementById(`issue-${id}`);
+  if (card && card.closest("#priority-list")) {
+    card.remove();
+    priorityMap.delete(id);
+    if (priorityMap.size === 0) document.getElementById("priority-section").style.display = "none";
+  }
+}
+
+async function addPriorityRepo() {
+  const input = document.getElementById("input-priority-repo");
+  const name = input.value.trim();
+  if (!name) return;
+  input.value = "";
+  try {
+    await fetch(apiUrl("/api/priority-repos"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ full_name: name }),
+    });
+    await loadPriorityRepos();
+  } catch { /* ignore */ }
+}
+
+async function removePriorityRepo(id) {
+  await fetch(apiUrl(`/api/priority-repos/${id}`), { method: "DELETE" });
+  await loadPriorityRepos();
 }
 
 function exportTriage(id) {
@@ -543,6 +619,11 @@ function bindFilters() {
     filters.bookmarked_only = e.target.checked;
     loadIssues();
   });
+
+  document.getElementById("filter-priority").addEventListener("change", (e) => {
+    filters.priority_only = e.target.checked;
+    loadIssues();
+  });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -550,17 +631,23 @@ document.addEventListener("DOMContentLoaded", () => {
   loadPreferences();
   loadIssues();
   loadStats();
+  loadPriorityRepos();
   connectSSE();
   bindFilters();
 
   document.getElementById("btn-refresh").addEventListener("click", () => {
     loadIssues();
     loadStats();
+    loadPriorityRepos();
   });
   document.getElementById("btn-poll-now").addEventListener("click", triggerPoll);
   document.getElementById("btn-save-prefs").addEventListener("click", savePreferences);
   document.getElementById("panel-close").addEventListener("click", closeTriagePanel);
   document.getElementById("panel-overlay").addEventListener("click", closeTriagePanel);
+  document.getElementById("btn-add-priority-repo").addEventListener("click", addPriorityRepo);
+  document.getElementById("input-priority-repo").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addPriorityRepo();
+  });
 
   setInterval(loadStats, 15000);
 });
