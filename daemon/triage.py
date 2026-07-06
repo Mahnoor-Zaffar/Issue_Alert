@@ -8,33 +8,45 @@ from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are a senior open-source engineer performing issue triage.
-Analyze the GitHub issue and repository context provided by the user.
+SYSTEM_PROMPT = """You are a friendly coding teacher explaining a GitHub issue to someone who is just learning to code.
 
-Respond with EXACTLY three markdown sections using these exact headings:
+Rules:
+- No jargon without explaining it in simple words right after
+- Use analogies from real life (cooking, sports, school, building with LEGOs)
+- **Use bullet points** instead of paragraphs — break everything into short bullet points
+- Each bullet point max 2 lines
+- Bold the most important word in each bullet point
+- Start every section with one bullet that says what it means in plain English
 
-## Codebase Architecture Context
-Describe the likely architecture and relevant parts of the codebase based on the file context and issue.
+Write exactly **four** sections with these exact headings:
 
-## Core Issue Breakdown
-Break down what the issue is asking for, key constraints, and potential complexity.
+## What This Part of the Code Does (Like I'm 10)
+## What's Wrong and What Needs to Change
+## Step-by-Step Plan to Fix It
+## One-Line Fix
 
-## Suggested PR Action Plan
-Provide a concrete, step-by-step plan for implementing a pull request to address this issue.
+The **One-Line Fix** section must be a single sentence that says what the fix is in the simplest possible language, like you're telling a friend what needs to happen. Keep it as one short line — no bullet points here."""
 
-Be precise and actionable. If file context is unavailable, infer from the issue description and repo name."""
 
 SECTION_PATTERN = re.compile(
-    r"##\s*Codebase Architecture Context\s*\n(.*?)"
-    r"##\s*Core Issue Breakdown\s*\n(.*?)"
-    r"##\s*Suggested PR Action Plan\s*\n(.*)",
+    r"##\s*What This Part of the Code Does \(Like I'm 10\)\s*\n(.*?)"
+    r"##\s*What's Wrong and What Needs to Change\s*\n(.*?)"
+    r"##\s*Step-by-Step Plan to Fix It\s*\n(.*?)"
+    r"##\s*One-Line Fix\s*\n(.*)",
     re.DOTALL | re.IGNORECASE,
 )
 
 
 class TriageEngine:
     def __init__(self) -> None:
-        self._client = AsyncOpenAI(api_key=settings.openai_api_key)
+        self._client = AsyncOpenAI(
+            api_key=settings.llm_api_key,
+            base_url=settings.llm_base_url,
+            default_headers={
+                "HTTP-Referer": "https://github.com/Mahnoor-Zaffar/Issue_Alert",
+                "X-Title": "GitHub Issue Triage",
+            },
+        )
 
     async def triage(
         self,
@@ -52,7 +64,7 @@ class TriageEngine:
         for attempt in range(3):
             try:
                 response = await self._client.chat.completions.create(
-                    model=settings.openai_model,
+                    model=settings.llm_model,
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": user_message},
@@ -66,14 +78,14 @@ class TriageEngine:
             except (RateLimitError, APITimeoutError, APIConnectionError) as exc:
                 delay = 2 ** (attempt + 1)
                 logger.warning(
-                    "OpenAI error (attempt %d): %s — retrying in %ds",
+                    "LLM error (attempt %d): %s — retrying in %ds",
                     attempt + 1,
                     exc,
                     delay,
                 )
                 await asyncio.sleep(delay)
 
-        raise RuntimeError("OpenAI triage failed after 3 retries")
+        raise RuntimeError("LLM triage failed after 3 retries")
 
     def _build_user_message(
         self,
@@ -111,7 +123,9 @@ class TriageEngine:
             return {
                 "architecture_context": match.group(1).strip(),
                 "issue_breakdown": match.group(2).strip(),
-                "action_plan": match.group(3).strip(),
+                "action_plan": match.group(3).strip()
+                + "\n\n**One-Line Fix:**\n"
+                + match.group(4).strip(),
                 "raw_response": raw,
             }
 

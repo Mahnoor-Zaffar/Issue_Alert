@@ -10,6 +10,7 @@ from daemon.context_extractor import extract_repo_context
 from daemon.notifier import notify_new_issue
 from daemon.poller import (
     GitHubPoller,
+    matches_label_preference,
     matches_language_preference,
     passes_claim_verification,
 )
@@ -65,6 +66,28 @@ def release_daemon_lock() -> None:
         pass
 
 
+def _passes_quality_gate(issue: dict[str, Any]) -> bool:
+    body = (issue.get("body") or "").strip()
+    title = (issue.get("title") or "").strip()
+    github_id = issue.get("github_id", "?")
+
+    if not body and len(title) < 15:
+        logger.info("Skipping issue %s — no body and short title: %r", github_id, title)
+        return False
+
+    if len(body) < 30:
+        logger.info("Skipping issue %s — body too short (%d chars)", github_id, len(body))
+        return False
+
+    spam_signals = ["http://", "https://", "buy ", "free ", "click here"]
+    body_lower = body.lower()
+    if any(signal in body_lower for signal in spam_signals) and len(body) < 100:
+        logger.info("Skipping issue %s — looks like spam", github_id)
+        return False
+
+    return True
+
+
 async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine) -> bool:
     github_id = issue_data["github_id"]
     if is_issue_seen(github_id):
@@ -76,11 +99,6 @@ async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine)
             "Skipping issue %s — failed claim verification (assigned, commented, or linked PR)",
             github_id,
         )
-        return False
-
-    if not (issue_data.get("body") or "").strip() and not issue_data.get("title"):
-        mark_issue_seen(github_id)
-        logger.info("Skipping issue %s — empty title and body", github_id)
         return False
 
     issue_id = insert_issue(issue_data)
@@ -173,6 +191,19 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
                 issue_data["github_id"],
                 issue_data.get("language"),
             )
+            continue
+
+        if not matches_label_preference(issue_data, get_preferences()):
+            mark_issue_seen(issue_data["github_id"])
+            logger.debug(
+                "Skipping issue %s — labels %s not in preferences",
+                issue_data["github_id"],
+                issue_data.get("labels"),
+            )
+            continue
+
+        if not _passes_quality_gate(issue_data):
+            mark_issue_seen(issue_data["github_id"])
             continue
 
         if await process_issue(issue_data, triage_engine):

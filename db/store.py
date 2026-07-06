@@ -16,6 +16,7 @@ MIGRATIONS = [
     "ALTER TABLE issues ADD COLUMN dismissed INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN viewed_at TEXT",
     "ALTER TABLE issues ADD COLUMN github_created_at TEXT",
+    "ALTER TABLE issues ADD COLUMN comments INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -34,14 +35,15 @@ def _visible_issue_clauses(
     *,
     show_dismissed: bool = False,
     include_stale: bool = False,
+    bookmarked_only: bool = False,
 ) -> tuple[list[str], list[Any]]:
-    """SQL filters for the live feed: unviewed, fresh, unclaimed issues only."""
     clauses: list[str] = []
     params: list[Any] = []
 
     if not show_dismissed:
         clauses.append("i.dismissed = 0")
-    clauses.append("i.viewed_at IS NULL")
+    if not bookmarked_only:
+        clauses.append("i.viewed_at IS NULL")
     if not include_stale:
         clauses.append(
             "(i.github_created_at IS NOT NULL AND i.github_created_at >= ?)"
@@ -82,17 +84,38 @@ def _migrate(conn: sqlite3.Connection) -> None:
             pass
 
     row = conn.execute(
-        "SELECT labels FROM user_preferences WHERE id = 1"
+        "SELECT labels, min_stars, languages FROM user_preferences WHERE id = 1"
     ).fetchone()
     if row:
         labels = json.loads(row["labels"] or "[]")
-        if len(labels) > 2 or "open source" in labels or "open-source" in labels:
+        min_stars = row["min_stars"]
+        languages = json.loads(row["languages"] or "[]")
+        needs_update = False
+
+        new_labels = ["bug", "feature", "enhancement", "help wanted", "good first issue", "task", "improvement", "fix", "bugfix", "feature request", "todo"]
+        old_default_labels = {"good first issue", "help wanted"}
+        prev_default_labels = {"bug", "feature", "enhancement", "help wanted"}
+        labels_set = set(labels)
+        if labels_set == old_default_labels or labels_set == prev_default_labels:
+            labels = list(new_labels)
+            needs_update = True
+        elif "open source" in labels or "open-source" in labels:
+            labels = [l for l in labels if l not in ("open source", "open-source")]
+            needs_update = True
+
+        old_default_languages = {"javascript", "python", "go", "rust"}
+        if set(languages) == old_default_languages:
+            languages = []
+            needs_update = True
+
+        if min_stars == 0:
+            min_stars = 500
+            needs_update = True
+
+        if needs_update:
             conn.execute(
-                """
-                UPDATE user_preferences
-                SET labels = '["good first issue","help wanted"]', min_stars = 0
-                WHERE id = 1
-                """
+                "UPDATE user_preferences SET labels = ?, min_stars = ?, languages = ? WHERE id = 1",
+                (json.dumps(labels), min_stars, json.dumps(languages)),
             )
 
 
@@ -137,19 +160,18 @@ def compute_score(issue: dict[str, Any]) -> float:
     stars = issue.get("repo_stars") or 0
     score += min(stars / 100.0, 50.0)
 
-    label_boost = {
-        "good first issue": 30,
-        "help wanted": 20,
-        "open source": 10,
-        "open-source": 10,
-    }
-    for label in issue.get("labels", []):
-        score += label_boost.get(label.lower(), 0)
+    comments = issue.get("comments") or 0
+    score += min(comments * 2.0, 20.0)
 
     body = issue.get("body") or ""
-    if len(body.strip()) > 100:
+    body_len = len(body.strip())
+    if body_len > 500:
+        score += 15
+    elif body_len > 200:
         score += 10
-    elif not body.strip():
+    elif body_len > 100:
+        score += 5
+    elif body_len == 0:
         score -= 5
 
     return round(score, 2)
@@ -168,8 +190,8 @@ def insert_issue(issue: dict[str, Any]) -> int:
             INSERT INTO issues (
                 github_id, title, body, html_url, repo_full_name,
                 repo_clone_url, labels, language, repo_stars, score,
-                state, status, github_created_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                comments, state, status, github_created_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 issue["github_id"],
@@ -182,6 +204,7 @@ def insert_issue(issue: dict[str, Any]) -> int:
                 issue.get("language"),
                 issue.get("repo_stars", 0),
                 score,
+                issue.get("comments", 0),
                 issue.get("state", "open"),
                 issue.get("status", "pending"),
                 github_created_at,
@@ -209,25 +232,29 @@ def update_issue_status(
 
 
 def mark_issue_viewed(issue_id: int) -> bool:
-    """Remove an issue from the feed once the user has viewed it."""
     with get_connection() as conn:
-        row = conn.execute("SELECT id FROM issues WHERE id = ?", (issue_id,)).fetchone()
+        row = conn.execute("SELECT id, bookmarked FROM issues WHERE id = ?", (issue_id,)).fetchone()
         if not row:
             return False
-        conn.execute("DELETE FROM issues WHERE id = ?", (issue_id,))
+        if row["bookmarked"]:
+            return True
+        conn.execute(
+            "UPDATE issues SET viewed_at = ?, updated_at = ? WHERE id = ?",
+            (_utcnow(), _utcnow(), issue_id),
+        )
         return True
 
 
 def purge_stale_issues() -> int:
-    """Delete viewed or expired issues so the feed stays fresh-only."""
     cutoff = _freshness_cutoff_iso()
     with get_connection() as conn:
         cursor = conn.execute(
             """
             DELETE FROM issues
-            WHERE viewed_at IS NOT NULL
-               OR github_created_at IS NULL
-               OR github_created_at < ?
+            WHERE bookmarked = 0
+              AND (viewed_at IS NOT NULL
+                OR github_created_at IS NULL
+                OR github_created_at < ?)
             """,
             (cutoff,),
         )
@@ -295,7 +322,7 @@ def list_issues(
     bookmarked_only: bool = False,
 ) -> list[dict[str, Any]]:
     visible_clauses, visible_params = _visible_issue_clauses(
-        show_dismissed=show_dismissed
+        show_dismissed=show_dismissed, bookmarked_only=bookmarked_only
     )
     clauses = list(visible_clauses)
     params: list[Any] = list(visible_params)
@@ -332,8 +359,8 @@ def list_issues(
         return [_row_to_issue(row) for row in rows]
 
 
-def get_issues_updated_since(since: str) -> list[dict[str, Any]]:
-    visible_clauses, visible_params = _visible_issue_clauses()
+def get_issues_updated_since(since: str, bookmarked_only: bool = False) -> list[dict[str, Any]]:
+    visible_clauses, visible_params = _visible_issue_clauses(bookmarked_only=bookmarked_only)
     where = " AND ".join(["i.updated_at > ?"] + visible_clauses)
     params: list[Any] = [since, *visible_params]
 
@@ -491,9 +518,9 @@ def save_preferences(prefs: dict[str, Any]) -> dict[str, Any]:
 
 def _default_preferences() -> dict[str, Any]:
     return {
-        "languages": ["javascript", "python", "go", "rust"],
-        "labels": ["good first issue", "help wanted"],
-        "min_stars": 0,
+        "languages": [],
+        "labels": ["bug", "feature", "enhancement", "help wanted", "good first issue", "task", "improvement", "fix", "bugfix", "feature request", "todo"],
+        "min_stars": 500,
         "show_dismissed": False,
     }
 

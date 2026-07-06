@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS issues (
     dismissed       INTEGER NOT NULL DEFAULT 0,
     viewed_at       TEXT,
     github_created_at TEXT,
+    comments        INTEGER NOT NULL DEFAULT 0,
     state           TEXT NOT NULL DEFAULT 'open',
     status          TEXT NOT NULL DEFAULT 'pending',
     error_message   TEXT,
@@ -48,9 +49,9 @@ CREATE TABLE IF NOT EXISTS daemon_state (
 
 CREATE TABLE IF NOT EXISTS user_preferences (
     id              INTEGER PRIMARY KEY CHECK (id = 1),
-    languages       TEXT NOT NULL DEFAULT '["javascript","python","go","rust"]',
-    labels          TEXT NOT NULL DEFAULT '["good first issue","help wanted"]',
-    min_stars       INTEGER NOT NULL DEFAULT 0,
+    languages       TEXT NOT NULL DEFAULT '[]',
+    labels          TEXT NOT NULL DEFAULT '["bug","feature","enhancement","help wanted","good first issue","task","improvement","fix","bugfix","feature request","todo"]',
+    min_stars       INTEGER NOT NULL DEFAULT 500,
     show_dismissed  INTEGER NOT NULL DEFAULT 0
 );
 

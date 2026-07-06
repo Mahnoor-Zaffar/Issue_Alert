@@ -60,7 +60,7 @@ function maybeShowEmptyState() {
     list.innerHTML = `
       <div class="empty-state" id="empty-state">
         <p>No fresh unclaimed issues right now</p>
-        <span id="empty-subtitle">Recent unclaimed issues (≤2 comments, last 6 hours). Viewed items clear automatically.</span>
+        <span id="empty-subtitle">Unclaimed issues from 1000+ star repos (last 7 days, sorted by activity). Click ★ to save favorites.</span>
       </div>`;
   }
 }
@@ -117,7 +117,7 @@ function buildCard(issue) {
 
   const triageHtml = buildTriageHtml(issue);
   const cardClass = issue.status === "error" ? "issue-card issue-card-error" : "issue-card";
-  const bookmarkClass = issue.bookmarked ? "btn-icon active" : "btn-icon";
+  const saveClass = issue.bookmarked ? "btn-save active" : "btn-save";
 
   return `
     <article class="${cardClass}" data-id="${issue.id}" id="issue-${issue.id}" onclick="handleCardClick(event, ${issue.id})">
@@ -142,7 +142,7 @@ function buildCard(issue) {
       ${triageHtml}
       ${issue.error_message ? `<div class="error-box"><strong>Error:</strong> ${escapeHtml(issue.error_message)}</div>` : ""}
       <div class="card-actions" onclick="event.stopPropagation()">
-        <button class="${bookmarkClass}" onclick="toggleBookmark(${issue.id})" title="Bookmark">★</button>
+        <button class="${saveClass}" onclick="toggleBookmark(${issue.id})" title="Save to favorites">${issue.bookmarked ? "★ Saved" : "☆ Save"}</button>
         <button class="btn-icon" onclick="dismissIssue(${issue.id})" title="Dismiss">✕</button>
         ${issue.triage ? `<button class="btn btn-secondary btn-sm" onclick="exportTriage(${issue.id})">Export MD</button>` : ""}
       </div>
@@ -183,6 +183,9 @@ function buildTriageHtml(issue) {
 }
 
 function animateCardIn(el, delay = 0) {
+  if (!el) return;
+  el.style.opacity = "0";
+  el.style.transform = "translateY(-20px)";
   anime({
     targets: el,
     opacity: [0, 1],
@@ -190,6 +193,10 @@ function animateCardIn(el, delay = 0) {
     duration: 600,
     delay,
     easing: "spring(1, 80, 10, 0)",
+    complete: () => {
+      el.style.opacity = "";
+      el.style.transform = "";
+    },
   });
 }
 
@@ -216,7 +223,6 @@ function toggleTriage(id) {
       easing: "easeInOutQuad",
       complete: () => {
         section.classList.remove("open");
-        markIssueViewed(id);
       },
     });
   } else {
@@ -239,12 +245,10 @@ function toggleTriage(id) {
 
 function handleCardClick(event, id) {
   if (event.target.closest("a, button, .triage-sections, .triage-toggle")) return;
-  markIssueViewed(id);
 }
 
 function handleIssueLinkClick(event, id) {
   event.stopPropagation();
-  markIssueViewed(id, { animate: false });
 }
 
 function buildQueryParams() {
@@ -284,6 +288,8 @@ function upsertIssue(issue, animate = true) {
     card.outerHTML = buildCard(issue);
     card = document.getElementById(cardId);
 
+    if (animate) animateCardIn(card);
+
     if (wasOpen && issue.status === "complete") {
       const section = document.getElementById(`triage-${issue.id}`);
       if (section) {
@@ -315,7 +321,7 @@ async function loadIssues() {
     document.getElementById("issue-list").innerHTML = `
       <div class="empty-state" id="empty-state">
         <p>No fresh unclaimed issues right now</p>
-        <span id="empty-subtitle">Recent unclaimed issues (≤2 comments, last 6 hours). Viewed items clear automatically.</span>
+        <span id="empty-subtitle">Unclaimed issues from 1000+ star repos (last 7 days, sorted by activity). Click ★ to save favorites.</span>
       </div>`;
     return;
   }
@@ -328,7 +334,7 @@ async function loadIssues() {
 }
 
 const DEFAULT_EMPTY_SUBTITLE =
-  "Recent unclaimed issues (≤2 comments, last 6 hours). Viewed items clear automatically.";
+  "Unclaimed issues from 1000+ star repos (last 7 days, sorted by activity). Click ★ to save favorites.";
 
 function updateEmptySubtitle(message) {
   const subtitle = document.getElementById("empty-subtitle");

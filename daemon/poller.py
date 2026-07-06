@@ -36,26 +36,21 @@ def build_search_query(
 ) -> str:
     """Build GitHub issue search query for pristine, unclaimed recent issues.
 
-    Note: ``language:`` qualifiers return zero results when OR-combined in issue
-    search, so language filtering is applied after fetch using repo metadata.
+    Note: ``label:`` and ``language:`` qualifiers return zero results when
+    OR-combined in issue search, so both are filtered post-fetch using repo
+    metadata instead of in the query.
     """
     prefs = prefs or get_preferences()
-    labels = prefs.get("labels") or []
     min_stars = prefs.get("min_stars", settings.min_repo_stars)
     cutoff = cutoff or freshness_cutoff_utc()
-
-    label_clause = " OR ".join(f'label:"{label}"' for label in labels)
 
     parts = [
         "is:issue",
         "is:open",
-        "no:assignee",
         format_created_filter(cutoff),
     ]
     if settings.max_issue_comments == 0:
         parts.append("comments:0")
-    if label_clause:
-        parts.append(f"({label_clause})")
     if min_stars > 0:
         parts.append(f"stars:>{min_stars}")
 
@@ -106,6 +101,17 @@ def matches_language_preference(
     if not language:
         return True
     return language in preferred
+
+
+def matches_label_preference(
+    issue: dict[str, Any], prefs: dict[str, Any] | None = None
+) -> bool:
+    prefs = prefs or get_preferences()
+    preferred = {label.lower() for label in (prefs.get("labels") or [])}
+    if not preferred:
+        return True
+    issue_labels = {label.lower() for label in (issue.get("labels") or [])}
+    return bool(preferred & issue_labels)
 
 
 class GitHubPoller:
@@ -188,7 +194,7 @@ class GitHubPoller:
 
         params = {
             "q": query,
-            "sort": "created",
+            "sort": "interactions",
             "order": "desc",
             "per_page": settings.search_per_page,
             "page": page,
