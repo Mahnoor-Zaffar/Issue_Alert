@@ -34,7 +34,8 @@ def progressive_cutoff_utc() -> datetime:
     last_poll = get_last_poll_time()
     if last_poll is None:
         return freshness_cutoff_utc()
-    return last_poll - timedelta(minutes=1)
+    lookback = timedelta(minutes=settings.search_lookback_minutes)
+    return max(freshness_cutoff_utc(), last_poll - lookback)
 
 
 def build_search_query(

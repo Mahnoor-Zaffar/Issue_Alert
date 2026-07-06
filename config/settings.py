@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     github_webhook_secret: str = ""
     search_per_page: int = 30
     search_max_pages: int = 5
+    search_lookback_minutes: int = 60
 
 
 settings = Settings()
