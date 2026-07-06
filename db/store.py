@@ -18,6 +18,7 @@ MIGRATIONS = [
     "ALTER TABLE issues ADD COLUMN github_created_at TEXT",
     "ALTER TABLE issues ADD COLUMN comments INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN is_priority INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE triage_reports ADD COLUMN difficulty TEXT",
 ]
 
 
@@ -264,6 +265,80 @@ def purge_stale_issues() -> int:
         return cursor.rowcount
 
 
+# ── Difficulty ──────────────────────────────────────────
+
+def parse_difficulty(text: str) -> str | None:
+    if not text:
+        return None
+    if "🟢" in text:
+        return "easy"
+    if "🟡" in text:
+        return "medium"
+    if "🔴" in text:
+        return "hard"
+    return None
+
+
+# ── Triage Queue ──────────────────────────────────────────
+
+def enqueue_triage(issue_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO triage_requests (issue_id) VALUES (?)",
+            (issue_id,),
+        )
+
+
+def get_pending_triage_requests() -> list[int]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT issue_id FROM triage_requests ORDER BY created_at ASC"
+        ).fetchall()
+        return [r["issue_id"] for r in rows]
+
+
+def dequeue_triage(issue_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM triage_requests WHERE issue_id = ?", (issue_id,))
+
+
+# ── Daily Stats ──────────────────────────────────────────
+
+def record_daily_stats() -> None:
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO daily_stats (date, triaged, bookmarked, polled)
+            VALUES (?, (
+                SELECT COUNT(*) FROM issues WHERE status = 'complete'
+                  AND date(updated_at) = ?
+            ), (
+                SELECT COUNT(*) FROM issues WHERE bookmarked = 1
+            ), 1)
+            ON CONFLICT(date) DO UPDATE SET
+                triaged = excluded.triaged,
+                bookmarked = excluded.bookmarked,
+                polled = polled + 1
+            """,
+            (today, today),
+        )
+
+
+def get_stats_history(days: int = 14) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT date, triaged, bookmarked, polled
+            FROM daily_stats
+            ORDER BY date ASC
+            LIMIT ?
+            """,
+            (days,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def set_issue_flag(issue_id: int, field: str, value: bool) -> None:
     if field not in ("bookmarked", "dismissed"):
         raise ValueError(f"Invalid field: {field}")
@@ -280,14 +355,15 @@ def insert_triage_report(
     issue_breakdown: str,
     action_plan: str,
     raw_response: str,
+    difficulty: str | None = None,
 ) -> None:
     with get_connection() as conn:
         conn.execute(
             """
             INSERT OR REPLACE INTO triage_reports (
                 issue_id, architecture_context, issue_breakdown,
-                action_plan, raw_response
-            ) VALUES (?, ?, ?, ?, ?)
+                action_plan, raw_response, difficulty
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 issue_id,
@@ -295,6 +371,7 @@ def insert_triage_report(
                 issue_breakdown,
                 action_plan,
                 raw_response,
+                difficulty,
             ),
         )
 
@@ -305,7 +382,8 @@ def get_issue(issue_id: int) -> dict[str, Any] | None:
             """
             SELECT i.*,
                    t.architecture_context, t.issue_breakdown,
-                   t.action_plan, t.raw_response AS triage_raw
+                   t.action_plan, t.raw_response AS triage_raw,
+                   t.difficulty
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
             WHERE i.id = ?
@@ -324,11 +402,12 @@ def list_issues(
     show_dismissed: bool = False,
     bookmarked_only: bool = False,
     is_priority: bool | None = None,
+    difficulty: str | None = None,
 ) -> list[dict[str, Any]]:
     visible_clauses, visible_params = _visible_issue_clauses(
         show_dismissed=show_dismissed, bookmarked_only=bookmarked_only
     )
-    clauses = list(visible_clauses)
+    clauses: list[str] = list(visible_clauses)
     params: list[Any] = list(visible_params)
 
     if language:
@@ -345,6 +424,9 @@ def list_issues(
     if is_priority is not None:
         clauses.append("i.is_priority = ?")
         params.append(1 if is_priority else 0)
+    if difficulty:
+        clauses.append("t.difficulty = ?")
+        params.append(difficulty)
 
     where = " AND ".join(clauses)
     params.extend([limit, offset])
@@ -354,7 +436,8 @@ def list_issues(
             f"""
             SELECT i.*,
                    t.architecture_context, t.issue_breakdown,
-                   t.action_plan, t.raw_response AS triage_raw
+                   t.action_plan, t.raw_response AS triage_raw,
+                   t.difficulty
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
             WHERE {where}
@@ -376,7 +459,8 @@ def get_issues_updated_since(since: str, bookmarked_only: bool = False) -> list[
             f"""
             SELECT i.*,
                    t.architecture_context, t.issue_breakdown,
-                   t.action_plan, t.raw_response AS triage_raw
+                   t.action_plan, t.raw_response AS triage_raw,
+                   t.difficulty
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
             WHERE {where}
@@ -601,6 +685,7 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
     issue["labels"] = json.loads(issue.get("labels") or "[]")
     issue["bookmarked"] = bool(issue.get("bookmarked"))
     issue["dismissed"] = bool(issue.get("dismissed"))
+    difficulty = issue.pop("difficulty", None)
     triage = None
     if issue.get("architecture_context") is not None:
         triage = {
@@ -615,6 +700,7 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
         issue.pop("action_plan", None)
         issue.pop("triage_raw", None)
     issue["triage"] = triage
+    issue["difficulty"] = difficulty
     issue["is_priority"] = bool(issue.get("is_priority", False))
     return issue
 

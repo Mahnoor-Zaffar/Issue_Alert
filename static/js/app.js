@@ -16,6 +16,8 @@ let filters = {
   label: "",
   bookmarked_only: false,
   show_dismissed: false,
+  priority_only: false,
+  difficulty: "",
 };
 
 const STATUS_LABELS = {
@@ -100,11 +102,17 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function parseDifficulty(text) {
-  if (!text) return null;
-  if (text.includes("🟢")) return { level: "easy", label: "🟢 Easy" };
-  if (text.includes("🟡")) return { level: "medium", label: "🟡 Medium" };
-  if (text.includes("🔴")) return { level: "hard", label: "🔴 Hard" };
+function parseDifficulty(issue) {
+  const d = issue.difficulty;
+  if (d === "easy") return { level: "easy", label: "🟢 Easy" };
+  if (d === "medium") return { level: "medium", label: "🟡 Medium" };
+  if (d === "hard") return { level: "hard", label: "🔴 Hard" };
+  if (issue.triage) {
+    const text = issue.triage.action_plan;
+    if (text.includes("🟢")) return { level: "easy", label: "🟢 Easy" };
+    if (text.includes("🟡")) return { level: "medium", label: "🟡 Medium" };
+    if (text.includes("🔴")) return { level: "hard", label: "🔴 Hard" };
+  }
   return null;
 }
 
@@ -127,7 +135,7 @@ function buildCard(issue) {
       ? `<span class="badge badge-score">Score ${issue.score}</span>`
       : "";
 
-  const diff = issue.triage ? parseDifficulty(issue.triage.action_plan) : null;
+  const diff = parseDifficulty(issue);
   const diffBadge = diff
     ? `<span class="badge badge-difficulty ${diff.level}">${diff.label}</span>`
     : "";
@@ -188,7 +196,7 @@ function renderPanelBody(issue) {
     { title: "📝 Plan to Fix It", content: t.action_plan },
   ];
 
-  return sections
+  const html = sections
     .map(
       (s) => `
       <div class="panel-section">
@@ -197,6 +205,12 @@ function renderPanelBody(issue) {
       </div>`
     )
     .join("");
+
+  const prBtn = issue.difficulty === "easy"
+    ? `<div style="margin-top:16px"><button class="btn btn-primary" onclick="openPR(${issue.id})" id="btn-open-pr-${issue.id}">🤖 Open Draft PR</button></div>`
+    : "";
+
+  return html + prBtn;
 }
 
 function animateCardIn(el, delay = 0) {
@@ -263,6 +277,7 @@ function buildQueryParams() {
   if (filters.language) params.set("language", filters.language);
   if (filters.status) params.set("status", filters.status);
   if (filters.label) params.set("label", filters.label);
+  if (filters.difficulty) params.set("difficulty", filters.difficulty);
   if (filters.bookmarked_only) params.set("bookmarked_only", "true");
   if (filters.show_dismissed) params.set("show_dismissed", "true");
   if (filters.priority_only) params.set("is_priority", "true");
@@ -425,7 +440,7 @@ async function triggerPoll() {
 }
 
 async function toggleBookmark(id) {
-  const issue = issueMap.get(id);
+  const issue = issueMap.get(id) || priorityMap.get(id);
   const newVal = !issue?.bookmarked;
   const res = await fetch(apiUrl(`/api/issues/${id}/bookmark`), {
     method: "POST",
@@ -434,6 +449,9 @@ async function toggleBookmark(id) {
   });
   const updated = await res.json();
   upsertIssue(updated, false);
+  if (newVal && updated.status !== "complete") {
+    setTimeout(loadIssues, 2000);
+  }
 }
 
 async function dismissIssue(id) {
@@ -513,6 +531,64 @@ async function removePriorityRepo(id) {
   await loadPriorityRepos();
 }
 
+// ── Open PR ───────────────────────────────────────────────
+
+async function openPR(id) {
+  const btn = document.getElementById(`btn-open-pr-${id}`);
+  if (btn) { btn.disabled = true; btn.textContent = "Opening PR…"; }
+  try {
+    const res = await fetch(apiUrl(`/api/issues/${id}/open-pr`), { method: "POST" });
+    const data = await res.json();
+    if (res.ok && data.pr_url) {
+      window.open(data.pr_url, "_blank");
+    } else {
+      alert(data.detail || "Failed to open PR");
+    }
+  } catch {
+    alert("Failed to open PR — check daemon logs");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "🤖 Open Draft PR"; }
+  }
+}
+
+// ── Stats History + Sparkline ─────────────────────────────
+
+async function loadStatsHistory() {
+  try {
+    const res = await fetch(apiUrl("/api/stats/history?days=14"));
+    const data = await res.json();
+    const history = data.history || [];
+    const card = document.getElementById("history-card");
+    if (history.length < 2) { card.style.display = "none"; return; }
+    card.style.display = "block";
+    renderSparkline(history);
+  } catch { document.getElementById("history-card").style.display = "none"; }
+}
+
+function renderSparkline(history) {
+  const svg = document.getElementById("sparkline");
+  const w = 200, h = 28;
+  const values = history.map((d) => d.triaged);
+  const max = Math.max(...values, 1);
+  const points = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * w;
+    const y = h - (v / max) * (h - 4) - 2;
+    return `${x},${y}`;
+  }).join(" ");
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="spark-gradient" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="rgba(91,192,235,0.3)" />
+        <stop offset="100%" stop-color="rgba(91,192,235,0)" />
+      </linearGradient>
+    </defs>
+    <polyline fill="url(#spark-gradient)" stroke="none"
+      points="0,${h} ${points} ${w},${h}" />
+    <polyline fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+      points="${points}" />
+  `;
+}
+
 function exportTriage(id) {
   const issue = issueMap.get(id);
   if (!issue?.triage) return;
@@ -545,6 +621,7 @@ window.closeTriagePanel = closeTriagePanel;
 window.toggleBookmark = toggleBookmark;
 window.dismissIssue = dismissIssue;
 window.exportTriage = exportTriage;
+window.openPR = openPR;
 window.handleCardClick = handleCardClick;
 window.handleIssueLinkClick = handleIssueLinkClick;
 
@@ -607,7 +684,7 @@ function connectSSE() {
 }
 
 function bindFilters() {
-  ["filter-language", "filter-status", "filter-label"].forEach((id) => {
+  ["filter-language", "filter-status", "filter-label", "filter-difficulty"].forEach((id) => {
     document.getElementById(id).addEventListener("change", (e) => {
       const key = id.replace("filter-", "");
       filters[key === "bookmarked" ? "bookmarked_only" : key] = e.target.value;
@@ -631,6 +708,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadPreferences();
   loadIssues();
   loadStats();
+  loadStatsHistory();
   loadPriorityRepos();
   connectSSE();
   bindFilters();
@@ -638,6 +716,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-refresh").addEventListener("click", () => {
     loadIssues();
     loadStats();
+    loadStatsHistory();
     loadPriorityRepos();
   });
   document.getElementById("btn-poll-now").addEventListener("click", triggerPoll);

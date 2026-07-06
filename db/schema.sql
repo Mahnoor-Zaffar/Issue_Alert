@@ -34,7 +34,23 @@ CREATE TABLE IF NOT EXISTS triage_reports (
     issue_breakdown      TEXT,
     action_plan          TEXT,
     raw_response         TEXT,
+    difficulty           TEXT,
     created_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS triage_requests (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id    INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS daily_stats (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    date        TEXT NOT NULL UNIQUE,
+    triaged     INTEGER NOT NULL DEFAULT 0,
+    bookmarked  INTEGER NOT NULL DEFAULT 0,
+    polled      INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS daemon_state (

@@ -38,12 +38,24 @@
         <span class="poll-value" id="last-poll-text">Waiting...</span>
       </div>
 
+      <div class="stat-card" id="history-card" style="display:none">
+        <span class="stat-label">Triaged (14d)</span>
+        <div id="sparkline-container">
+          <svg id="sparkline" width="100%" height="32" viewBox="0 0 220 32" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+
+      <div class="stat-card" id="history-card" style="display:none">
+        <span class="stat-label">Triaged (14d)</span>
+        <svg id="sparkline" width="100%" height="28" viewBox="0 0 200 28" preserveAspectRatio="none" style="margin-top:4px"></svg>
+      </div>
+
       <div class="sidebar-actions">
         <button class="btn btn-primary" id="btn-poll-now">Poll Now</button>
         <button class="btn btn-secondary" id="btn-refresh">Refresh</button>
       </div>
 
-      <details class="preferences-panel" id="priority-panel" open>
+      <details class="preferences-panel" id="priority-panel">
         <summary>🔔 Priority Repos</summary>
         <div class="pref-form">
           <div style="display:flex;gap:6px">
@@ -102,6 +114,12 @@
           <option value="extracting">Extracting</option>
           <option value="error">Error</option>
           <option value="pending">Pending</option>
+        </select>
+        <select id="filter-difficulty" class="filter-select">
+          <option value="">All difficulties</option>
+          <option value="easy">🟢 Easy</option>
+          <option value="medium">🟡 Medium</option>
+          <option value="hard">🔴 Hard</option>
         </select>
         <select id="filter-label" class="filter-select">
           <option value="">All labels</option>

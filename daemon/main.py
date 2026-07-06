@@ -16,7 +16,11 @@ from daemon.poller import (
 )
 from daemon.triage import TriageEngine
 from db.store import (
+    dequeue_triage,
+    enqueue_triage,
     fetch_pending_webhooks,
+    get_issue,
+    get_pending_triage_requests,
     get_preferences,
     get_priority_repos,
     init_db,
@@ -26,7 +30,9 @@ from db.store import (
     is_poll_requested,
     mark_issue_seen,
     mark_webhook_processed,
+    parse_difficulty,
     purge_stale_issues,
+    record_daily_stats,
     update_issue_status,
     update_poll_state,
 )
@@ -142,12 +148,14 @@ async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine,
             repo_url=issue_data["html_url"],
             file_context=file_context,
         )
+        difficulty = parse_difficulty(result["action_plan"])
         insert_triage_report(
             issue_id=issue_id,
             architecture_context=result["architecture_context"],
             issue_breakdown=result["issue_breakdown"],
             action_plan=result["action_plan"],
             raw_response=result["raw_response"],
+            difficulty=difficulty,
         )
         update_issue_status(issue_id, "complete")
         logger.info("Triage complete for issue #%d", issue_id)
@@ -171,11 +179,58 @@ async def process_webhooks(poller: GitHubPoller, triage_engine: TriageEngine) ->
     return processed
 
 
+async def process_triage_queue(poller: GitHubPoller, triage_engine: TriageEngine) -> int:
+    processed = 0
+    for issue_id in get_pending_triage_requests():
+        issue = get_issue(issue_id)
+        if not issue or issue["status"] == "complete":
+            dequeue_triage(issue_id)
+            continue
+
+        logger.info("Processing queued triage for issue #%d: %s", issue_id, issue["title"])
+
+        update_issue_status(issue_id, "extracting")
+        file_context = await asyncio.to_thread(
+            extract_repo_context, issue["repo_clone_url"]
+        )
+
+        update_issue_status(issue_id, "triaging")
+        try:
+            result = await triage_engine.triage(
+                title=issue["title"],
+                body=issue["body"],
+                labels=issue["labels"],
+                language=issue.get("language"),
+                repo_url=issue["html_url"],
+                file_context=file_context,
+            )
+            difficulty = parse_difficulty(result["action_plan"])
+            insert_triage_report(
+                issue_id=issue_id,
+                architecture_context=result["architecture_context"],
+                issue_breakdown=result["issue_breakdown"],
+                action_plan=result["action_plan"],
+                raw_response=result["raw_response"],
+                difficulty=difficulty,
+            )
+            update_issue_status(issue_id, "complete")
+            logger.info("Queued triage complete for issue #%d", issue_id)
+            processed += 1
+        except Exception as exc:
+            logger.exception("Queued triage failed for issue #%d", issue_id)
+            update_issue_status(issue_id, "error", str(exc))
+
+        dequeue_triage(issue_id)
+
+    return processed
+
+
 async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
     purged = purge_stale_issues()
     if purged:
         logger.info("Purged %d stale or viewed issue(s) from feed", purged)
 
+    await process_triage_queue(poller, triage_engine)
     await process_webhooks(poller, triage_engine)
 
     priority_issues = await poller.fetch_priority_issues()
@@ -255,6 +310,8 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
         detail,
         total_count,
     )
+
+    record_daily_stats()
 
 
 async def interruptible_sleep(seconds: int) -> bool:
