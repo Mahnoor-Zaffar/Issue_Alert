@@ -7,7 +7,7 @@ import httpx
 
 from config.settings import settings
 from daemon.rate_limiter import GitHubRateLimiter
-from db.store import get_preferences
+from db.store import get_last_poll_time, get_preferences
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,13 @@ def freshness_cutoff_utc(
 def format_created_filter(cutoff: datetime) -> str:
     """GitHub Search API ``created:>=`` qualifier in UTC ISO-8601 form."""
     return f"created:>={cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+
+
+def progressive_cutoff_utc() -> datetime:
+    last_poll = get_last_poll_time()
+    if last_poll is None:
+        return freshness_cutoff_utc()
+    return last_poll - timedelta(minutes=1)
 
 
 def build_search_query(
@@ -133,7 +140,7 @@ class GitHubPoller:
 
     async def fetch_issues(self) -> tuple[list[dict[str, Any]], int, str | None]:
         prefs = get_preferences()
-        cutoff = freshness_cutoff_utc()
+        cutoff = progressive_cutoff_utc()
         query = build_search_query(prefs, cutoff)
         all_items, total_count, search_ok = await self._search_pages(query)
 

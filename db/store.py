@@ -472,6 +472,17 @@ def request_poll() -> None:
         conn.execute("UPDATE daemon_state SET poll_requested = 1 WHERE id = 1")
 
 
+def get_last_poll_time() -> datetime | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT last_poll_at FROM daemon_state WHERE id = 1"
+        ).fetchone()
+        if row and row["last_poll_at"]:
+            dt = datetime.fromisoformat(row["last_poll_at"])
+            return dt.replace(tzinfo=timezone.utc)
+        return None
+
+
 def is_poll_requested() -> bool:
     with get_connection() as conn:
         row = conn.execute(
