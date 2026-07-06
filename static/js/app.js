@@ -8,6 +8,7 @@ const API_BASE = window.API_BASE || "";
 function apiUrl(path) {
   return `${API_BASE}${path}`;
 }
+
 let filters = {
   language: "",
   status: "",
@@ -69,9 +70,7 @@ async function markIssueViewed(id, { animate = true } = {}) {
   if (!issueMap.has(id)) return;
   try {
     await fetch(apiUrl(`/api/issues/${id}/view`), { method: "POST" });
-  } catch {
-    /* ignore — card still removed locally */
-  }
+  } catch { /* ignore */ }
   removeIssueCard(id, animate);
 }
 
@@ -82,18 +81,30 @@ function truncate(text, max = 200) {
 
 function renderMarkdown(text) {
   if (!text) return "";
-  return text
+  let html = text
     .replace(/^[-*] (.+)$/gm, "<li>$1</li>")
     .replace(/(<li>.*<\/li>\n?)+/gs, (m) => `<ul>${m}</ul>`)
+    .replace(/```(\w*)\n([\s\S]*?)```/g, "<pre><code>$2</code></pre>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\n\n/g, "</p><p>")
     .replace(/^/, "<p>")
     .replace(/$/, "</p>");
+  return html;
 }
 
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+function parseDifficulty(text) {
+  if (!text) return null;
+  if (text.includes("🟢")) return { level: "easy", label: "🟢 Easy" };
+  if (text.includes("🟡")) return { level: "medium", label: "🟡 Medium" };
+  if (text.includes("🔴")) return { level: "hard", label: "🔴 Hard" };
+  return null;
 }
 
 function buildCard(issue) {
@@ -115,7 +126,17 @@ function buildCard(issue) {
       ? `<span class="badge badge-score">Score ${issue.score}</span>`
       : "";
 
-  const triageHtml = buildTriageHtml(issue);
+  const diff = issue.triage ? parseDifficulty(issue.triage.action_plan) : null;
+  const diffBadge = diff
+    ? `<span class="badge badge-difficulty ${diff.level}">${diff.label}</span>`
+    : "";
+
+  const triageBtn = issue.status === "complete" && issue.triage
+    ? `<button class="btn-view-triage" onclick="event.stopPropagation(); openTriagePanel(${issue.id})">View Report</button>`
+    : issue.status === "error"
+      ? `<span class="badge badge-difficulty hard" style="background:rgba(255,94,94,0.1);color:var(--accent-red)">Error</span>`
+      : `<span class="triage-pending-msg">Triaging…</span>`;
+
   const cardClass = issue.status === "error" ? "issue-card issue-card-error" : "issue-card";
   const saveClass = issue.bookmarked ? "btn-save active" : "btn-save";
 
@@ -128,6 +149,7 @@ function buildCard(issue) {
             ${langBadge}
             ${starsBadge}
             ${scoreBadge}
+            ${diffBadge}
             ${labels}
           </div>
           <h2 class="issue-title">
@@ -139,58 +161,47 @@ function buildCard(issue) {
         </span>
       </div>
       <p class="issue-body-preview">${escapeHtml(truncate(issue.body))}</p>
-      ${triageHtml}
       ${issue.error_message ? `<div class="error-box"><strong>Error:</strong> ${escapeHtml(issue.error_message)}</div>` : ""}
       <div class="card-actions" onclick="event.stopPropagation()">
         <button class="${saveClass}" onclick="toggleBookmark(${issue.id})" title="Save to favorites">${issue.bookmarked ? "★ Saved" : "☆ Save"}</button>
+        ${triageBtn}
         <button class="btn-icon" onclick="dismissIssue(${issue.id})" title="Dismiss">✕</button>
-        ${issue.triage ? `<button class="btn btn-secondary btn-sm" onclick="exportTriage(${issue.id})">Export MD</button>` : ""}
+        ${issue.triage ? `<button class="btn-export" onclick="exportTriage(${issue.id})" title="Export markdown">↓</button>` : ""}
       </div>
     </article>
   `;
 }
 
-function buildTriageHtml(issue) {
-  if (issue.status === "complete" && issue.triage) {
-    return `
-      <button class="triage-toggle" onclick="event.stopPropagation(); toggleTriage(${issue.id})">
-        View AI Triage Report
-      </button>
-      <div class="triage-sections" id="triage-${issue.id}">
-        <div class="triage-grid">
-          <div class="triage-section">
-            <h3>Architecture Context</h3>
-            <div>${renderMarkdown(issue.triage.architecture_context)}</div>
-          </div>
-          <div class="triage-section">
-            <h3>Issue Breakdown</h3>
-            <div>${renderMarkdown(issue.triage.issue_breakdown)}</div>
-          </div>
-          <div class="triage-section">
-            <h3>PR Action Plan</h3>
-            <div>${renderMarkdown(issue.triage.action_plan)}</div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
+function renderPanelBody(issue) {
+  const t = issue.triage;
+  if (!t) return `<p class="triage-pending-msg">No triage report available.</p>`;
 
-  if (issue.status === "error") {
-    return `<p class="triage-pending-msg">Triage failed — see error below.</p>`;
-  }
+  const sections = [
+    { title: "🧩 What This Part of the Code Does", content: t.architecture_context },
+    { title: "🐛 What's Wrong and What Needs to Change", content: t.issue_breakdown },
+    { title: "📝 Plan to Fix It", content: t.action_plan },
+  ];
 
-  return `<p class="triage-pending-msg">AI triage in progress…</p>`;
+  return sections
+    .map(
+      (s) => `
+      <div class="panel-section">
+        <h3>${s.title}</h3>
+        <div>${renderMarkdown(s.content)}</div>
+      </div>`
+    )
+    .join("");
 }
 
 function animateCardIn(el, delay = 0) {
   if (!el) return;
   el.style.opacity = "0";
-  el.style.transform = "translateY(-20px)";
+  el.style.transform = "translateY(-16px)";
   anime({
     targets: el,
     opacity: [0, 1],
-    translateY: [-20, 0],
-    duration: 600,
+    translateY: [-16, 0],
+    duration: 500,
     delay,
     easing: "spring(1, 80, 10, 0)",
     complete: () => {
@@ -209,42 +220,32 @@ function animateStatusComplete(pill) {
   });
 }
 
-function toggleTriage(id) {
-  const section = document.getElementById(`triage-${id}`);
-  if (!section) return;
+/* ───── Slide-out Panel ───── */
 
-  const isOpen = section.classList.contains("open");
+function openTriagePanel(id) {
+  const issue = issueMap.get(id);
+  if (!issue || !issue.triage) return;
 
-  if (isOpen) {
-    anime({
-      targets: section,
-      height: 0,
-      duration: 400,
-      easing: "easeInOutQuad",
-      complete: () => {
-        section.classList.remove("open");
-      },
-    });
-  } else {
-    section.style.height = "auto";
-    const fullHeight = section.scrollHeight;
-    section.style.height = "0";
-    section.classList.add("open");
-
-    anime({
-      targets: section,
-      height: fullHeight,
-      duration: 400,
-      easing: "easeInOutQuad",
-      complete: () => {
-        section.style.height = "auto";
-      },
-    });
-  }
+  document.getElementById("panel-title").textContent = issue.title;
+  document.getElementById("panel-repo").textContent = issue.repo_full_name;
+  document.getElementById("panel-body").innerHTML = renderPanelBody(issue);
+  document.getElementById("triage-panel").classList.add("open");
+  document.getElementById("panel-overlay").classList.add("open");
+  document.body.style.overflow = "hidden";
 }
 
+function closeTriagePanel() {
+  document.getElementById("triage-panel").classList.remove("open");
+  document.getElementById("panel-overlay").classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeTriagePanel();
+});
+
 function handleCardClick(event, id) {
-  if (event.target.closest("a, button, .triage-sections, .triage-toggle")) return;
+  if (event.target.closest("a, button, .triage-panel, .panel-overlay")) return;
 }
 
 function handleIssueLinkClick(event, id) {
@@ -282,21 +283,11 @@ function upsertIssue(issue, animate = true) {
   let card = document.getElementById(cardId);
 
   if (card) {
-    const wasOpen = document
-      .getElementById(`triage-${issue.id}`)
-      ?.classList.contains("open");
+    const wasOpen = document.getElementById("triage-panel")?.classList.contains("open")
+      && document.getElementById("panel-title")?.textContent === issue.title;
     card.outerHTML = buildCard(issue);
     card = document.getElementById(cardId);
-
     if (animate) animateCardIn(card);
-
-    if (wasOpen && issue.status === "complete") {
-      const section = document.getElementById(`triage-${issue.id}`);
-      if (section) {
-        section.classList.add("open");
-        section.style.height = "auto";
-      }
-    }
 
     if (prevStatus !== "complete" && issue.status === "complete") {
       const pill = card.querySelector(".status-pill");
@@ -379,9 +370,7 @@ async function loadStats() {
     document.getElementById("last-poll-text").textContent = pollParts.join(" · ");
 
     updateEmptySubtitle(data.last_poll_message);
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
 }
 
 async function loadPreferences() {
@@ -393,9 +382,7 @@ async function loadPreferences() {
     document.getElementById("pref-min-stars").value = prefs.min_stars ?? 10;
     document.getElementById("pref-show-dismissed").checked = !!prefs.show_dismissed;
     filters.show_dismissed = !!prefs.show_dismissed;
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
 }
 
 async function savePreferences() {
@@ -459,13 +446,13 @@ function exportTriage(id) {
 **Repo:** ${issue.repo_full_name}  
 **URL:** ${issue.html_url}
 
-## Codebase Architecture Context
+## 🧩 What This Part of the Code Does
 ${issue.triage.architecture_context}
 
-## Core Issue Breakdown
+## 🐛 What's Wrong and What Needs to Change
 ${issue.triage.issue_breakdown}
 
-## Suggested PR Action Plan
+## 📝 Plan to Fix It
 ${issue.triage.action_plan}
 `;
 
@@ -477,7 +464,8 @@ ${issue.triage.action_plan}
   URL.revokeObjectURL(a.href);
 }
 
-window.toggleTriage = toggleTriage;
+window.openTriagePanel = openTriagePanel;
+window.closeTriagePanel = closeTriagePanel;
 window.toggleBookmark = toggleBookmark;
 window.dismissIssue = dismissIssue;
 window.exportTriage = exportTriage;
@@ -571,6 +559,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.getElementById("btn-poll-now").addEventListener("click", triggerPoll);
   document.getElementById("btn-save-prefs").addEventListener("click", savePreferences);
+  document.getElementById("panel-close").addEventListener("click", closeTriagePanel);
+  document.getElementById("panel-overlay").addEventListener("click", closeTriagePanel);
 
   setInterval(loadStats, 15000);
 });
