@@ -209,16 +209,28 @@ def _do_open_pr(issue: dict[str, Any]) -> str:
     if not file_path:
         raise ValueError("Could not determine which file to edit from the triage report")
 
-    # Parse the fix code — look for the ✅ code block
-    code_match = re.search(r"```\w*\n(.*?✅.*?)\n\s*```", action_plan, re.DOTALL)
-    if not code_match:
-        code_match = re.search(r"✅.*?\n(.*?)(?:\n\s*```|$)", action_plan, re.DOTALL)
-    if not code_match:
+    # Parse paired ❌ (before) and ✅ (after) code blocks
+    # Each pair: a code block with ❌ followed by a code block with ✅
+    blocks = re.findall(r"```\w*\n(.*?)\n\s*```", action_plan, re.DOTALL)
+    before_blocks = []
+    after_blocks = []
+    i = 0
+    while i < len(blocks):
+        if "❌" in blocks[i] and i + 1 < len(blocks) and "✅" in blocks[i + 1]:
+            before_blocks.append(blocks[i])
+            after_blocks.append(blocks[i + 1])
+            i += 2
+        elif "✅" in blocks[i]:
+            after_blocks.append(blocks[i])
+            i += 1
+        else:
+            i += 1
+
+    if not after_blocks:
         raise ValueError(
             "Could not extract fix code from the triage report. "
             "The report was generated but doesn't contain a ✅ code block."
         )
-    new_code = code_match.group(1).strip()
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -295,7 +307,25 @@ def _do_open_pr(issue: dict[str, Any]) -> str:
     current_content = base64.b64decode(content_data["content"]).decode("utf-8", errors="replace")
     sha = content_data["sha"]
 
-    new_content = current_content + "\n\n" + new_code
+    # Apply search-and-replace for each ❌→✅ pair
+    new_content = current_content
+    applied_any = False
+    for old_block, new_block in zip(before_blocks, after_blocks):
+        # Strip the trailing ❌ wrong / ✅ correct labels
+        old_code = re.sub(r"\s*❌.*", "", old_block).strip()
+        new_code = re.sub(r"\s*✅.*", "", new_block).strip()
+        if old_code and old_code in new_content:
+            new_content = new_content.replace(old_code, new_code, 1)
+            applied_any = True
+            logger.info("Replaced ❌ code in %s", file_path)
+
+    if not applied_any:
+        # Fallback: append all ✅ code blocks
+        additions = [
+            re.sub(r"\s*✅.*", "", b).strip() for b in after_blocks
+        ]
+        new_content = current_content + "\n\n" + "\n\n".join(additions)
+        logger.info("No ❌ match found — appending ✅ code to %s", file_path)
 
     client.put(f"https://api.github.com/repos/{fork_full}/contents/{file_path}", json={
         "message": f"fix: {title[:60]}",
