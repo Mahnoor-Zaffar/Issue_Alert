@@ -2,6 +2,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import httpx
 import json
 import logging
 import re
@@ -178,7 +179,65 @@ async def api_set_difficulty(issue_id: int, body: DifficultyBody):
         raise HTTPException(status_code=400, detail="Invalid difficulty (use: easy, medium, hard)")
     return get_issue(issue_id)
 
-import httpx
+
+@router.get("/api/pr-details")
+async def api_pr_details(pr_url: str):
+    # Parse owner/repo/number from URL like https://github.com/owner/repo/pull/123
+    m = re.search(r"github\.com/([^/]+/[^/]+)/pull/(\d+)", pr_url)
+    if not m:
+        raise HTTPException(status_code=400, detail="Invalid PR URL")
+    repo, pr_number = m.group(1), m.group(2)
+    headers = {
+        "Authorization": f"Bearer {settings.github_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    async with httpx.AsyncClient(headers=headers, timeout=15.0) as client:
+        pr_resp = await client.get(f"https://api.github.com/repos/{repo}/pulls/{pr_number}")
+        if pr_resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="Failed to fetch PR from GitHub")
+        pr_data = pr_resp.json()
+
+        files_resp = await client.get(
+            f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files",
+            params={"per_page": 20},
+        )
+        files = files_resp.json() if files_resp.status_code == 200 else []
+
+        checks_resp = await client.get(
+            f"https://api.github.com/repos/{repo}/commits/{pr_data['head']['sha']}/check-runs",
+        )
+        checks = checks_resp.json().get("check_runs", []) if checks_resp.status_code == 200 else []
+
+    return {
+        "title": pr_data.get("title", ""),
+        "body": pr_data.get("body", ""),
+        "state": pr_data.get("state", ""),
+        "draft": pr_data.get("draft", False),
+        "merged": pr_data.get("merged", False),
+        "created_at": pr_data.get("created_at", ""),
+        "html_url": pr_data.get("html_url", ""),
+        "files": [
+            {
+                "filename": f["filename"],
+                "status": f.get("status", ""),
+                "additions": f.get("additions", 0),
+                "deletions": f.get("deletions", 0),
+                "changes": f.get("changes", 0),
+            }
+            for f in files
+        ],
+        "checks": [
+            {
+                "name": c.get("name", ""),
+                "status": c.get("status", ""),
+                "conclusion": c.get("conclusion"),
+                "html_url": c.get("html_url", ""),
+            }
+            for c in checks
+        ],
+    }
+
 
 def _do_open_pr(issue: dict[str, Any]) -> str:
     action_plan = issue["triage"]["action_plan"]

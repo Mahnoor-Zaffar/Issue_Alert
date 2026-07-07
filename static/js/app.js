@@ -221,9 +221,13 @@ function renderPanelBody(issue) {
   let prSection = "";
   if (prUrl) {
     const labels = { open: "🔵 Open", pending: "⏳ CI Running…", success: "✅ CI Passing", failure: "❌ CI Failing", merged: "✅ Merged", closed: "🔒 Closed", error: "⚠️ CI Error" };
-    prSection = `<div style="margin-top:16px;padding:12px;border:1px solid var(--border);border-radius:8px">
-      <strong>PR: ${labels[prStatus] || prStatus}</strong><br>
-      <a href="${prUrl}" target="_blank" rel="noopener">${prUrl}</a>
+    prSection = `<div style="margin-top:16px" id="pr-section-${issue.id}">
+      <div style="padding:12px;border:1px solid var(--border);border-radius:8px">
+        <strong>PR: ${labels[prStatus] || prStatus}</strong><br>
+        <a href="${prUrl}" target="_blank" rel="noopener">${prUrl}</a>
+        <br><button class="btn btn-primary" style="margin-top:8px;font-size:0.8rem" onclick="loadPRDetails(${issue.id})">Show Details</button>
+        <div id="pr-details-${issue.id}" style="margin-top:8px"></div>
+      </div>
     </div>`;
   } else if (issue.difficulty === "easy") {
     prSection = `<div style="margin-top:16px"><button class="btn btn-primary" onclick="openPR(${issue.id})" id="btn-open-pr-${issue.id}">🤖 Open Draft PR</button></div>`;
@@ -588,6 +592,61 @@ async function openPR(id) {
   }
 }
 
+async function loadPRDetails(id) {
+  const container = document.getElementById(`pr-details-${id}`);
+  if (!container) return;
+  if (container.dataset.loaded) return;
+  container.innerHTML = "Loading…";
+  container.dataset.loaded = "1";
+
+  const issue = issueMap.get(id) || priorityMap.get(id);
+  const prUrl = issue && (issue.triage && issue.triage.pr_url || issue.pr_url);
+  if (!prUrl) return;
+
+  try {
+    const res = await fetch(apiUrl(`/api/pr-details?pr_url=${encodeURIComponent(prUrl)}`));
+    if (!res.ok) { container.innerHTML = "Failed to load PR details"; return; }
+    const data = await res.json();
+
+    const stateBadge = data.merged ? "✅ Merged" : data.draft ? "📝 Draft" : data.state === "open" ? "🔵 Open" : "🔒 Closed";
+    let html = `<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong>${escapeHtml(data.title)}</strong>
+        <span>${stateBadge}</span>
+      </div>
+      <div style="font-size:0.84rem;margin-top:6px;color:var(--text-secondary)">
+        Created ${new Date(data.created_at).toLocaleDateString()}
+      </div>`;
+
+    if (data.body) {
+      html += `<div style="margin-top:8px;font-size:0.84rem;color:var(--text-secondary);max-height:200px;overflow-y:auto">${renderMarkdown(data.body)}</div>`;
+    }
+
+    if (data.files && data.files.length) {
+      html += `<div style="margin-top:8px"><strong>Files changed (${data.files.length}):</strong></div>`;
+      html += data.files.slice(0, 10).map(f =>
+        `<div style="display:flex;justify-content:space-between;font-size:0.82rem;padding:2px 0">
+          <span>${escapeHtml(f.filename)}</span>
+          <span>+${f.additions}/-${f.deletions}</span>
+        </div>`
+      ).join("");
+    }
+
+    if (data.checks && data.checks.length) {
+      html += `<div style="margin-top:8px"><strong>Checks:</strong></div>`;
+      html += data.checks.map(c => {
+        const icon = c.conclusion === "success" ? "✅" : c.conclusion === "failure" ? "❌" : c.status === "completed" ? "✅" : "⏳";
+        return `<div style="font-size:0.82rem;padding:1px 0">${icon} ${escapeHtml(c.name)}</div>`;
+      }).join("");
+    }
+
+    html += `</div>`;
+    container.innerHTML = html;
+  } catch {
+    container.innerHTML = "Failed to load PR details";
+  }
+}
+
 // ── Stats History + Sparkline ─────────────────────────────
 
 async function loadStatsHistory() {
@@ -659,6 +718,7 @@ window.toggleBookmark = toggleBookmark;
 window.dismissIssue = dismissIssue;
 window.exportTriage = exportTriage;
 window.openPR = openPR;
+window.loadPRDetails = loadPRDetails;
 window.cycleDifficulty = cycleDifficulty;
 window.handleCardClick = handleCardClick;
 window.handleIssueLinkClick = handleIssueLinkClick;
