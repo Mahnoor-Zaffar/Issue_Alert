@@ -216,6 +216,16 @@ function renderPanelBody(issue) {
     )
     .join("");
 
+  const commentSection = t.claim_comment
+    ? `<div class="panel-section">
+        <h3>💬 Comment to Get Assigned</h3>
+        <div style="background:rgba(61,220,132,0.08);border:1px solid rgba(61,220,132,0.2);padding:12px;border-radius:8px;position:relative">
+          <div style="font-size:0.9rem;line-height:1.5;margin-bottom:8px">${escapeHtml(t.claim_comment)}</div>
+          <button class="btn btn-primary" style="font-size:0.8rem" onclick="copyClaimComment(${issue.id})" id="btn-copy-${issue.id}">📋 Copy</button>
+        </div>
+      </div>`
+    : "";
+
   const prStatus = issue.triage && issue.triage.pr_status || issue.pr_status;
   const prUrl = issue.triage && issue.triage.pr_url || issue.pr_url;
   let prSection = "";
@@ -233,7 +243,20 @@ function renderPanelBody(issue) {
     prSection = `<div style="margin-top:16px"><button class="btn btn-primary" onclick="openPR(${issue.id})" id="btn-open-pr-${issue.id}">🤖 Open Draft PR</button></div>`;
   }
 
-  return html + prSection;
+  return html + commentSection + prSection;
+}
+
+function copyClaimComment(id) {
+  const issue = issueMap.get(id) || priorityMap.get(id);
+  const text = issue && (issue.triage && issue.triage.claim_comment || issue.claim_comment);
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById(`btn-copy-${id}`);
+    if (btn) { const orig = btn.textContent; btn.textContent = "✅ Copied!"; setTimeout(() => btn.textContent = orig, 2000); }
+  }).catch(() => {
+    const btn = document.getElementById(`btn-copy-${id}`);
+    if (btn) btn.textContent = "❌ Failed";
+  });
 }
 
 function animateCardIn(el, delay = 0) {
@@ -720,6 +743,7 @@ window.exportTriage = exportTriage;
 window.openPR = openPR;
 window.loadPRDetails = loadPRDetails;
 window.cycleDifficulty = cycleDifficulty;
+window.copyClaimComment = copyClaimComment;
 window.handleCardClick = handleCardClick;
 window.handleIssueLinkClick = handleIssueLinkClick;
 

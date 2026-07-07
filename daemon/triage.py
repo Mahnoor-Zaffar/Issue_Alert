@@ -17,13 +17,14 @@ Rules:
 - Use clear, precise software terminology — no cooking/sports analogies
 - Include **actual code** in the fix plan (before/after, with ❌ and ✅)
 
-Write **five** sections with these exact headings:
+Write **six** sections with these exact headings:
 
 ## 🧩 What This Part of the Code Does
 ## 🐛 What's Wrong and What Needs to Change
 ## 📁 Files You'll Need to Edit
 ## 📝 Step-by-Step Plan to Fix It
 ## 💡 One-Line Fix
+## 💬 What to Comment on the Issue
 
 **📁 Files You'll Need to Edit** — just a simple bullet list of filenames (e.g. `src/login.js`, `src/utils.js`). No explanations needed. **Only use files from the "Repository source files" list below — never invent a file path.**
 
@@ -42,7 +43,14 @@ Also add a **Difficulty** badge inside this section as a bullet point at the top
 - 🟡 Medium (multiple files)
 - 🔴 Hard (big change)
 
-**💡 One-Line Fix** — a single sentence, no bullets. Describe the fix in plain technical terms."""
+**💡 One-Line Fix** — a single sentence, no bullets. Describe the fix in plain technical terms.
+
+**💬 What to Comment on the Issue** — a single paragraph, in a natural human tone, that the contributor can copy-paste as a GitHub comment to express interest and get assigned. It should:
+- Show you understand the issue
+- Briefly describe your approach
+- Ask politely to be assigned
+- Sound like a real person, not a robot
+- Be 2-4 sentences max"""
 
 
 SECTION_PATTERN = re.compile(
@@ -50,7 +58,8 @@ SECTION_PATTERN = re.compile(
     r"##\s*🐛 What's Wrong and What Needs to Change\s*\n(.*?)"
     r"##\s*📁 Files You'll Need to Edit\s*\n(.*?)"
     r"##\s*📝 Step-by-Step Plan to Fix It\s*\n(.*?)"
-    r"##\s*💡 One-Line Fix\s*\n(.*)",
+    r"##\s*💡 One-Line Fix\s*\n(.*?)"
+    r"##\s*💬 What to Comment on the Issue\s*\n(.*)",
     re.DOTALL | re.IGNORECASE,
 )
 
@@ -153,6 +162,7 @@ class TriageEngine:
                     + "\n\n**📝 Step-by-step:**\n" + match.group(4).strip()
                     + "\n\n**💡 One-Line Fix:**\n" + match.group(5).strip()
                 ),
+                "claim_comment": match.group(6).strip(),
                 "raw_response": raw,
             }
 
@@ -161,5 +171,6 @@ class TriageEngine:
             "architecture_context": raw,
             "issue_breakdown": "",
             "action_plan": "",
+            "claim_comment": "",
             "raw_response": raw,
         }

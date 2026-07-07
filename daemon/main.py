@@ -163,6 +163,7 @@ async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine,
             action_plan=result["action_plan"],
             raw_response=result["raw_response"],
             difficulty=difficulty,
+            claim_comment=result.get("claim_comment"),
         )
         update_issue_status(issue_id, "complete")
         logger.info("Triage complete for issue #%d", issue_id)
@@ -175,6 +176,18 @@ async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine,
 
 
 async def process_webhooks(poller: GitHubPoller, triage_engine: TriageEngine) -> int:
+    processed = 0
+    for entry in fetch_pending_webhooks():
+        issue_data = poller.issue_from_webhook(entry["payload"])
+        mark_webhook_processed(entry["id"])
+        if issue_data and await process_issue(issue_data, triage_engine):
+            processed += 1
+    if processed:
+        logger.info("Processed %d webhook issue(s)", processed)
+    return processed
+
+
+async def process_triage_queue(poller: GitHubPoller, triage_engine: TriageEngine) -> int:
     processed = 0
     for entry in fetch_pending_webhooks():
         issue_data = poller.issue_from_webhook(entry["payload"])
@@ -220,6 +233,7 @@ async def process_triage_queue(poller: GitHubPoller, triage_engine: TriageEngine
                 action_plan=result["action_plan"],
                 raw_response=result["raw_response"],
                 difficulty=difficulty,
+                claim_comment=result.get("claim_comment"),
             )
             update_issue_status(issue_id, "complete")
             logger.info("Queued triage complete for issue #%d", issue_id)
@@ -372,6 +386,7 @@ async def retry_errored_issues() -> None:
                 action_plan=result["action_plan"],
                 raw_response=result["raw_response"],
                 difficulty=difficulty,
+                claim_comment=result.get("claim_comment"),
             )
             update_issue_status(issue_id, "complete")
             reset_retry_count(issue_id)

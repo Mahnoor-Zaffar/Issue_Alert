@@ -24,6 +24,7 @@ MIGRATIONS = [
     "ALTER TABLE triage_reports ADD COLUMN pr_status TEXT",
     "ALTER TABLE triage_reports ADD COLUMN pr_checked_at TEXT",
     "ALTER TABLE issues ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE triage_reports ADD COLUMN claim_comment TEXT",
 ]
 
 
@@ -362,14 +363,15 @@ def insert_triage_report(
     action_plan: str,
     raw_response: str,
     difficulty: str | None = None,
+    claim_comment: str | None = None,
 ) -> None:
     with get_connection() as conn:
         conn.execute(
             """
             INSERT OR REPLACE INTO triage_reports (
                 issue_id, architecture_context, issue_breakdown,
-                action_plan, raw_response, difficulty
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                action_plan, raw_response, difficulty, claim_comment
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 issue_id,
@@ -378,6 +380,7 @@ def insert_triage_report(
                 action_plan,
                 raw_response,
                 difficulty,
+                claim_comment,
             ),
         )
 
@@ -390,7 +393,8 @@ def get_issue(issue_id: int) -> dict[str, Any] | None:
                    t.architecture_context, t.issue_breakdown,
                    t.action_plan, t.raw_response AS triage_raw,
                    t.difficulty, t.pr_url, t.pr_head_sha,
-                   t.pr_status, t.pr_checked_at
+                   t.pr_status, t.pr_checked_at,
+                   t.claim_comment
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
             WHERE i.id = ?
@@ -445,7 +449,8 @@ def list_issues(
                    t.architecture_context, t.issue_breakdown,
                    t.action_plan, t.raw_response AS triage_raw,
                    t.difficulty, t.pr_url, t.pr_head_sha,
-                   t.pr_status, t.pr_checked_at
+                   t.pr_status, t.pr_checked_at,
+                   t.claim_comment
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
             WHERE {where}
@@ -469,7 +474,8 @@ def get_issues_updated_since(since: str, bookmarked_only: bool = False) -> list[
                    t.architecture_context, t.issue_breakdown,
                    t.action_plan, t.raw_response AS triage_raw,
                    t.difficulty, t.pr_url, t.pr_head_sha,
-                   t.pr_status, t.pr_checked_at
+                   t.pr_status, t.pr_checked_at,
+                   t.claim_comment
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
             WHERE {where}
@@ -699,6 +705,7 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
     pr_head_sha = issue.pop("pr_head_sha", None)
     pr_status = issue.pop("pr_status", None)
     pr_checked_at = issue.pop("pr_checked_at", None)
+    claim_comment = issue.pop("claim_comment", None)
     triage = None
     if issue.get("architecture_context") is not None:
         triage = {
@@ -710,6 +717,7 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
             "pr_head_sha": pr_head_sha,
             "pr_status": pr_status,
             "pr_checked_at": pr_checked_at,
+            "claim_comment": claim_comment,
         }
     else:
         issue.pop("architecture_context", None)
