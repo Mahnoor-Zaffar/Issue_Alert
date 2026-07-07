@@ -251,10 +251,30 @@ def _do_open_pr(issue: dict[str, Any]) -> str:
         params={"ref": branch},
     )
     if content_resp.status_code != 200:
+        # Fallback: search the original repo's git tree for a matching filename
+        basename = file_path.rsplit("/", 1)[-1]
+        tree_resp = client.get(
+            f"https://api.github.com/repos/{repo}/git/trees/{default_branch}?recursive=1",
+        )
+        if tree_resp.status_code == 200:
+            tree = tree_resp.json().get("tree", [])
+            match = next(
+                (e["path"] for e in tree
+                 if e["type"] == "blob" and e["path"].endswith(basename)),
+                None,
+            )
+            if match:
+                file_path = match
+                content_resp = client.get(
+                    f"https://api.github.com/repos/{fork_full}/contents/{file_path}",
+                    params={"ref": branch},
+                )
+
+    if content_resp.status_code != 200:
         raise ValueError(
             f"File `{file_path}` not found in {fork_full} on branch `{branch}`. "
-            f"The triage report may reference a file that doesn't exist in this repo. "
-            f"Check the 📁 Files section of the report for the correct path."
+            f"The triage report may reference a file that doesn't exist or has a wrong path. "
+            f"Open the issue on GitHub to find the correct file, then manually apply the fix."
         )
     content_data = content_resp.json()
     current_content = base64.b64decode(content_data["content"]).decode("utf-8", errors="replace")
