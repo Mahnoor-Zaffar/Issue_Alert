@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS daemon_state (
 
 CREATE TABLE IF NOT EXISTS user_preferences (
     id              INTEGER PRIMARY KEY CHECK (id = 1),
-    languages       TEXT NOT NULL DEFAULT '[]',
+    languages       TEXT NOT NULL DEFAULT '["javascript","python"]',
     labels          TEXT NOT NULL DEFAULT '["bug","feature","enhancement","help wanted","good first issue","task","improvement","fix","bugfix","feature request","todo"]',
     min_stars       INTEGER NOT NULL DEFAULT 500,
     show_dismissed  INTEGER NOT NULL DEFAULT 0

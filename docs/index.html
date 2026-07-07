@@ -12,7 +12,7 @@
   <div class="app">
     <aside class="sidebar">
       <div class="logo">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
         </svg>
         <span>Issue Triage</span>
@@ -24,24 +24,47 @@
           <span class="stat-label">Total Issues</span>
         </div>
         <div class="stat-card">
-          <span class="stat-value" id="stat-pending">0</span>
-          <span class="stat-label">In Progress</span>
-        </div>
-        <div class="stat-card">
           <span class="stat-value" id="stat-complete">0</span>
           <span class="stat-label">Triaged</span>
         </div>
+        <div class="stat-card">
+          <span class="stat-value" id="stat-pending">0</span>
+          <span class="stat-label">In Progress</span>
+        </div>
       </div>
 
-      <div class="poll-status" id="poll-status">
+      <div class="poll-status">
         <span class="poll-label">Last poll</span>
         <span class="poll-value" id="last-poll-text">Waiting...</span>
+      </div>
+
+      <div class="stat-card" id="history-card" style="display:none">
+        <span class="stat-label">Triaged (14d)</span>
+        <div id="sparkline-container">
+          <svg id="sparkline" width="100%" height="32" viewBox="0 0 220 32" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+
+      <div class="stat-card" id="history-card" style="display:none">
+        <span class="stat-label">Triaged (14d)</span>
+        <svg id="sparkline" width="100%" height="28" viewBox="0 0 200 28" preserveAspectRatio="none" style="margin-top:4px"></svg>
       </div>
 
       <div class="sidebar-actions">
         <button class="btn btn-primary" id="btn-poll-now">Poll Now</button>
         <button class="btn btn-secondary" id="btn-refresh">Refresh</button>
       </div>
+
+      <details class="preferences-panel" id="priority-panel">
+        <summary>🔔 Priority Repos</summary>
+        <div class="pref-form">
+          <div style="display:flex;gap:6px">
+            <input type="text" id="input-priority-repo" placeholder="owner/repo" style="flex:1" />
+            <button class="btn btn-secondary btn-sm" id="btn-add-priority-repo">+</button>
+          </div>
+          <div id="priority-repo-list" style="font-size:0.82rem;color:var(--text-secondary)"></div>
+        </div>
+      </details>
 
       <details class="preferences-panel">
         <summary>Preferences</summary>
@@ -72,7 +95,7 @@
       <header class="feed-header">
         <div>
           <h1>Live Issue Feed</h1>
-          <p class="subtitle">Open-source opportunities with AI triage reports</p>
+          <p class="subtitle">Unclaimed issues from 1000+ star repos (last 7 days). Click ★ to save favorites.</p>
         </div>
       </header>
 
@@ -92,6 +115,12 @@
           <option value="error">Error</option>
           <option value="pending">Pending</option>
         </select>
+        <select id="filter-difficulty" class="filter-select">
+          <option value="">All difficulties</option>
+          <option value="easy">🟢 Easy</option>
+          <option value="medium">🟡 Medium</option>
+          <option value="hard">🔴 Hard</option>
+        </select>
         <select id="filter-label" class="filter-select">
           <option value="">All labels</option>
           <option value="help wanted">help wanted</option>
@@ -99,10 +128,19 @@
           <option value="open source">open source</option>
         </select>
         <label class="checkbox-label toolbar-check">
-          <input type="checkbox" id="filter-bookmarked" /> Bookmarked only
+          <input type="checkbox" id="filter-bookmarked" /> Saved only
+        </label>
+        <label class="checkbox-label toolbar-check">
+          <input type="checkbox" id="filter-priority" /> Priority only
         </label>
       </div>
 
+      <div id="priority-section" style="display:none">
+        <h2 style="font-size:1.1rem;margin-bottom:12px;color:var(--accent-yellow)">🔔 Priority Issues</h2>
+        <div id="priority-list" class="issue-list" style="margin-bottom:24px"></div>
+      </div>
+
+      <h2 style="font-size:1.1rem;margin-bottom:12px;color:var(--text-secondary)" id="general-heading">General Feed</h2>
       <div id="issue-list" class="issue-list">
         <div class="empty-state" id="empty-state">
           <p>Waiting for issues...</p>
@@ -110,6 +148,19 @@
         </div>
       </div>
     </main>
+  </div>
+
+  <!-- Slide-out triage panel -->
+  <div class="panel-overlay" id="panel-overlay"></div>
+  <div class="triage-panel" id="triage-panel">
+    <div class="panel-header">
+      <div>
+        <h2 id="panel-title"></h2>
+        <span class="repo-name" id="panel-repo"></span>
+      </div>
+      <button class="panel-close" id="panel-close" title="Close">✕</button>
+    </div>
+    <div class="panel-body" id="panel-body"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"></script>

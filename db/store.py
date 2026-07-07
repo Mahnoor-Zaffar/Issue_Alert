@@ -106,8 +106,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
             needs_update = True
 
         old_default_languages = {"javascript", "python", "go", "rust"}
+        new_default_languages = {"javascript", "python"}
         if set(languages) == old_default_languages:
-            languages = []
+            languages = list(new_default_languages)
             needs_update = True
 
         if min_stars == 0:
@@ -620,7 +621,7 @@ def save_preferences(prefs: dict[str, Any]) -> dict[str, Any]:
 
 def _default_preferences() -> dict[str, Any]:
     return {
-        "languages": [],
+        "languages": ["javascript", "python"],
         "labels": ["bug", "feature", "enhancement", "help wanted", "good first issue", "task", "improvement", "fix", "bugfix", "feature request", "todo"],
         "min_stars": 500,
         "show_dismissed": False,
