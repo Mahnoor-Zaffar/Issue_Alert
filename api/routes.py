@@ -1,8 +1,11 @@
 import asyncio
+import base64
 import hashlib
 import hmac
 import json
 import logging
+import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -157,13 +160,6 @@ async def api_open_pr(issue_id: int):
         logger.exception("Failed to open PR for issue #%d", issue_id)
         raise HTTPException(status_code=500, detail=str(e))
 
-
-import base64
-import re
-import subprocess
-import tempfile
-from pathlib import Path
-
 import httpx
 
 def _do_open_pr(issue: dict[str, Any]) -> str:
@@ -173,14 +169,35 @@ def _do_open_pr(issue: dict[str, Any]) -> str:
     html_url = issue["html_url"]
     token = settings.github_token
 
-    file_match = re.search(r"`([^`]+)`", action_plan)
-    if not file_match:
-        raise ValueError("Could not determine which file to edit from the triage report")
-    file_path = file_match.group(1)
+    # Parse file paths from the 📁 Files section
+    files_section = re.search(
+        r"📁 Files[\s\S]*?(?=📝 Step|💡 One|$)", action_plan
+    )
+    file_path = None
+    if files_section:
+        file_match = re.search(r"`([^`]+\.[a-zA-Z0-9]+)`", files_section.group(0))
+        if file_match:
+            file_path = file_match.group(1)
 
+    # Fallback: look for "Open `path`" in step-by-step section
+    if not file_path:
+        open_match = re.search(r"Open\s+`([^`]+)`", action_plan)
+        if open_match:
+            file_path = open_match.group(1)
+
+    # Last resort: first backtick with a file extension in the whole plan
+    if not file_path:
+        ext_match = re.search(r"`([^`]+\.[a-zA-Z0-9]+)`", action_plan)
+        if ext_match:
+            file_path = ext_match.group(1)
+
+    if not file_path:
+        raise ValueError("Could not determine which file to edit from the triage report")
+
+    # Parse the fix code — look for the ✅ code block
     code_match = re.search(r"```\w*\n(.*?✅.*?)\n```", action_plan, re.DOTALL)
     if not code_match:
-        code_match = re.search(r"✅.*?\n(.*?)(?:\n```|$)", action_plan, re.DOTALL)
+        code_match = re.search(r"✅\s*\n(.*?)(?:\n```|$)", action_plan, re.DOTALL)
     if not code_match:
         raise ValueError("Could not extract fix code from the triage report")
     new_code = code_match.group(1).strip()
@@ -194,14 +211,25 @@ def _do_open_pr(issue: dict[str, Any]) -> str:
     client = httpx.Client(headers=headers, timeout=30.0)
 
     owner, repo_name = repo.split("/")
-    fork_resp = client.post(f"https://api.github.com/repos/{repo}/forks")
-    if fork_resp.status_code not in (202, 200):
-        raise ValueError(f"Failed to fork repo: HTTP {fork_resp.status_code}")
-    fork_data = fork_resp.json()
-    fork_full = fork_data["full_name"]
+
+    # Fork the repo (retry if still processing)
+    fork_full = None
+    for attempt in range(6):
+        fork_resp = client.post(f"https://api.github.com/repos/{repo}/forks")
+        if fork_resp.status_code in (200, 202):
+            fork_data = fork_resp.json()
+            fork_full = fork_data["full_name"]
+            break
+        time.sleep(5)
+    if not fork_full:
+        raise ValueError("Failed to fork repo after 6 attempts")
     fork_owner = fork_full.split("/")[0]
 
-    resp = client.get(f"https://api.github.com/repos/{fork_full}/git/ref/heads/{fork_data.get('default_branch', 'main')}")
+    # Get default branch SHA from the fork
+    default_branch = fork_data.get("default_branch", "main")
+    resp = client.get(
+        f"https://api.github.com/repos/{fork_full}/git/ref/heads/{default_branch}"
+    )
     if resp.status_code != 200:
         resp = client.get(f"https://api.github.com/repos/{fork_full}/git/refs/heads/main")
     if resp.status_code != 200:
@@ -214,12 +242,17 @@ def _do_open_pr(issue: dict[str, Any]) -> str:
         "sha": base_sha,
     })
 
+    # Try to get file from the fork's new branch
     content_resp = client.get(
         f"https://api.github.com/repos/{fork_full}/contents/{file_path}",
         params={"ref": branch},
     )
     if content_resp.status_code != 200:
-        raise ValueError(f"File {file_path} not found in fork (HTTP {content_resp.status_code})")
+        raise ValueError(
+            f"File `{file_path}` not found in {fork_full} on branch `{branch}`. "
+            f"The triage report may reference a file that doesn't exist in this repo. "
+            f"Check the 📁 Files section of the report for the correct path."
+        )
     content_data = content_resp.json()
     current_content = base64.b64decode(content_data["content"]).decode("utf-8", errors="replace")
     sha = content_data["sha"]
