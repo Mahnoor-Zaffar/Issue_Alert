@@ -195,11 +195,14 @@ def _do_open_pr(issue: dict[str, Any]) -> str:
         raise ValueError("Could not determine which file to edit from the triage report")
 
     # Parse the fix code — look for the ✅ code block
-    code_match = re.search(r"```\w*\n(.*?✅.*?)\n```", action_plan, re.DOTALL)
+    code_match = re.search(r"```\w*\n(.*?✅.*?)\n\s*```", action_plan, re.DOTALL)
     if not code_match:
-        code_match = re.search(r"✅\s*\n(.*?)(?:\n```|$)", action_plan, re.DOTALL)
+        code_match = re.search(r"✅.*?\n(.*?)(?:\n\s*```|$)", action_plan, re.DOTALL)
     if not code_match:
-        raise ValueError("Could not extract fix code from the triage report")
+        raise ValueError(
+            "Could not extract fix code from the triage report. "
+            "The report was generated but doesn't contain a ✅ code block."
+        )
     new_code = code_match.group(1).strip()
 
     headers = {
