@@ -38,11 +38,11 @@ def _should_skip_path(path: str) -> bool:
     return any(skip in parts for skip in SKIP_DIRS)
 
 
-def extract_repo_context(repo_clone_url: str) -> list[dict[str, str]]:
+def extract_repo_context(repo_clone_url: str) -> tuple[list[dict[str, str]], list[str]]:
     parsed = _parse_repo_url(repo_clone_url)
     if not parsed:
         logger.warning("Could not parse repo URL: %s", repo_clone_url)
-        return []
+        return [], []
 
     owner, repo = parsed
     headers = {
@@ -55,7 +55,7 @@ def extract_repo_context(repo_clone_url: str) -> list[dict[str, str]]:
         repo_resp = client.get(f"https://api.github.com/repos/{owner}/{repo}")
         if repo_resp.status_code != 200:
             logger.warning("Failed to fetch repo info for %s/%s: HTTP %d", owner, repo, repo_resp.status_code)
-            return []
+            return [], []
         repo_data = repo_resp.json()
         default_branch = repo_data.get("default_branch", "main")
 
@@ -63,7 +63,7 @@ def extract_repo_context(repo_clone_url: str) -> list[dict[str, str]]:
             f"https://api.github.com/repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1"
         )
         if tree_resp.status_code != 200:
-            return []
+            return [], []
 
         tree = tree_resp.json().get("tree", [])
 
@@ -95,5 +95,5 @@ def extract_repo_context(repo_clone_url: str) -> list[dict[str, str]]:
             decoded = raw[: settings.max_file_bytes].decode("utf-8", errors="replace")
             context.append({"path": path, "content": decoded})
 
-        logger.info("Extracted context from %s: %d files", repo_clone_url, len(context))
-        return context
+        logger.info("Extracted context from %s: %d files (%d candidates)", repo_clone_url, len(context), len(candidates))
+        return context, candidates

@@ -25,7 +25,7 @@ Write **five** sections with these exact headings:
 ## 📝 Step-by-Step Plan to Fix It
 ## 💡 One-Line Fix
 
-**📁 Files You'll Need to Edit** — just a simple bullet list of filenames (e.g. `src/login.js`, `src/utils.js`). No explanations needed.
+**📁 Files You'll Need to Edit** — just a simple bullet list of filenames (e.g. `src/login.js`, `src/utils.js`). No explanations needed. **Only use files from the "Repository source files" list below — never invent a file path.**
 
 **📝 Step-by-Step Plan** — include code snippets showing what to change, like:
 - Open `filename.js` line 42
@@ -74,9 +74,10 @@ class TriageEngine:
         language: str | None,
         repo_url: str,
         file_context: list[dict[str, str]],
+        file_paths: list[str] | None = None,
     ) -> dict[str, str]:
         user_message = self._build_user_message(
-            title, body, labels, language, repo_url, file_context
+            title, body, labels, language, repo_url, file_context, file_paths
         )
 
         for attempt in range(3):
@@ -113,6 +114,7 @@ class TriageEngine:
         language: str | None,
         repo_url: str,
         file_context: list[dict[str, str]],
+        file_paths: list[str] | None = None,
     ) -> str:
         parts = [
             f"# Issue: {title}",
@@ -123,6 +125,11 @@ class TriageEngine:
             "## Issue Body",
             body or "(empty)",
         ]
+
+        if file_paths:
+            parts.append("\n## Repository source files (use ONLY these paths in 📁 Files section)")
+            for fp in sorted(file_paths):
+                parts.append(f"- `{fp}`")
 
         if file_context:
             parts.append("\n## Repository File Context")

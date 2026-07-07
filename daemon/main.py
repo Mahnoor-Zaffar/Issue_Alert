@@ -122,7 +122,7 @@ async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine,
     update_issue_status(issue_id, "notified")
 
     update_issue_status(issue_id, "extracting")
-    file_context = await asyncio.to_thread(
+    file_context, file_paths = await asyncio.to_thread(
         extract_repo_context, issue_data["repo_clone_url"]
     )
 
@@ -147,6 +147,7 @@ async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine,
             language=issue_data.get("language"),
             repo_url=issue_data["html_url"],
             file_context=file_context,
+            file_paths=file_paths,
         )
         difficulty = parse_difficulty(result["action_plan"])
         insert_triage_report(
@@ -190,7 +191,7 @@ async def process_triage_queue(poller: GitHubPoller, triage_engine: TriageEngine
         logger.info("Processing queued triage for issue #%d: %s", issue_id, issue["title"])
 
         update_issue_status(issue_id, "extracting")
-        file_context = await asyncio.to_thread(
+        file_context, file_paths = await asyncio.to_thread(
             extract_repo_context, issue["repo_clone_url"]
         )
 
@@ -203,6 +204,7 @@ async def process_triage_queue(poller: GitHubPoller, triage_engine: TriageEngine
                 language=issue.get("language"),
                 repo_url=issue["html_url"],
                 file_context=file_context,
+                file_paths=file_paths,
             )
             difficulty = parse_difficulty(result["action_plan"])
             insert_triage_report(
