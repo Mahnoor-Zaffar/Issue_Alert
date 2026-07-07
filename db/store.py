@@ -19,6 +19,10 @@ MIGRATIONS = [
     "ALTER TABLE issues ADD COLUMN comments INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN is_priority INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE triage_reports ADD COLUMN difficulty TEXT",
+    "ALTER TABLE triage_reports ADD COLUMN pr_url TEXT",
+    "ALTER TABLE triage_reports ADD COLUMN pr_head_sha TEXT",
+    "ALTER TABLE triage_reports ADD COLUMN pr_status TEXT",
+    "ALTER TABLE triage_reports ADD COLUMN pr_checked_at TEXT",
 ]
 
 
@@ -384,7 +388,8 @@ def get_issue(issue_id: int) -> dict[str, Any] | None:
             SELECT i.*,
                    t.architecture_context, t.issue_breakdown,
                    t.action_plan, t.raw_response AS triage_raw,
-                   t.difficulty
+                   t.difficulty, t.pr_url, t.pr_head_sha,
+                   t.pr_status, t.pr_checked_at
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
             WHERE i.id = ?
@@ -438,7 +443,8 @@ def list_issues(
             SELECT i.*,
                    t.architecture_context, t.issue_breakdown,
                    t.action_plan, t.raw_response AS triage_raw,
-                   t.difficulty
+                   t.difficulty, t.pr_url, t.pr_head_sha,
+                   t.pr_status, t.pr_checked_at
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
             WHERE {where}
@@ -461,7 +467,8 @@ def get_issues_updated_since(since: str, bookmarked_only: bool = False) -> list[
             SELECT i.*,
                    t.architecture_context, t.issue_breakdown,
                    t.action_plan, t.raw_response AS triage_raw,
-                   t.difficulty
+                   t.difficulty, t.pr_url, t.pr_head_sha,
+                   t.pr_status, t.pr_checked_at
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
             WHERE {where}
@@ -687,6 +694,10 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
     issue["bookmarked"] = bool(issue.get("bookmarked"))
     issue["dismissed"] = bool(issue.get("dismissed"))
     difficulty = issue.pop("difficulty", None)
+    pr_url = issue.pop("pr_url", None)
+    pr_head_sha = issue.pop("pr_head_sha", None)
+    pr_status = issue.pop("pr_status", None)
+    pr_checked_at = issue.pop("pr_checked_at", None)
     triage = None
     if issue.get("architecture_context") is not None:
         triage = {
@@ -694,6 +705,10 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
             "issue_breakdown": issue.pop("issue_breakdown"),
             "action_plan": issue.pop("action_plan"),
             "raw_response": issue.pop("triage_raw"),
+            "pr_url": pr_url,
+            "pr_head_sha": pr_head_sha,
+            "pr_status": pr_status,
+            "pr_checked_at": pr_checked_at,
         }
     else:
         issue.pop("architecture_context", None)
@@ -747,3 +762,38 @@ def set_issue_difficulty(issue_id: int, difficulty: str | None) -> bool:
             (difficulty, issue_id),
         )
         return cursor.rowcount > 0
+
+
+def save_pr_info(issue_id: int, pr_url: str, head_sha: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE triage_reports
+               SET pr_url = ?, pr_head_sha = ?, pr_status = 'open', pr_checked_at = ?
+               WHERE issue_id = ?""",
+            (pr_url, head_sha, _utcnow(), issue_id),
+        )
+
+
+def get_prs_pending_checks() -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT t.issue_id, t.pr_url, t.pr_head_sha, i.repo_full_name
+               FROM triage_reports t
+               JOIN issues i ON i.id = t.issue_id
+               WHERE t.pr_url IS NOT NULL
+                 AND t.pr_status NOT IN ('success', 'failure', 'merged', 'closed', 'error')"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def update_pr_status(issue_id: int, status: str) -> None:
+    now = _utcnow()
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE triage_reports SET pr_status = ?, pr_checked_at = ? WHERE issue_id = ?",
+            (status, now, issue_id),
+        )
+        conn.execute(
+            "UPDATE issues SET updated_at = ? WHERE id = ?",
+            (now, issue_id),
+        )

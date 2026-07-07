@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import httpx
 import logging
 import os
 import sys
@@ -23,6 +25,7 @@ from db.store import (
     get_pending_triage_requests,
     get_preferences,
     get_priority_repos,
+    get_prs_pending_checks,
     init_db,
     insert_issue,
     insert_triage_report,
@@ -35,6 +38,7 @@ from db.store import (
     record_daily_stats,
     update_issue_status,
     update_poll_state,
+    update_pr_status,
 )
 
 logging.basicConfig(
@@ -314,6 +318,50 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
     )
 
     record_daily_stats()
+    await check_pr_checks()
+
+
+async def check_pr_checks() -> None:
+    pending = get_prs_pending_checks()
+    if not pending:
+        return
+    headers = {
+        "Authorization": f"Bearer {settings.github_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    async with httpx.AsyncClient(headers=headers, timeout=15.0) as client:
+        for pr in pending:
+            try:
+                owner_repo = pr["repo_full_name"]
+                sha = pr["pr_head_sha"]
+                resp = await client.get(
+                    f"https://api.github.com/repos/{owner_repo}/commits/{sha}/check-runs",
+                )
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+                check_runs = data.get("check_runs", [])
+                if not check_runs:
+                    continue
+                concluded = [c for c in check_runs if c.get("status") == "completed"]
+                if not concluded:
+                    update_pr_status(pr["issue_id"], "pending")
+                    continue
+                all_success = all(
+                    c.get("conclusion") == "success" for c in concluded
+                )
+                update_pr_status(
+                    pr["issue_id"],
+                    "success" if all_success else "failure",
+                )
+                logger.info(
+                    "PR check status for issue #%d: %s",
+                    pr["issue_id"],
+                    "success" if all_success else "failure",
+                )
+            except Exception:
+                logger.exception("Failed to check PR checks for issue #%d", pr["issue_id"])
 
 
 async def interruptible_sleep(seconds: int) -> bool:

@@ -144,6 +144,15 @@ function buildCard(issue) {
     ? `<span class="badge badge-difficulty" style="background:rgba(245,200,66,0.15);color:var(--accent-yellow)">🔔 Priority</span>`
     : "";
 
+  const prStatus = issue.triage && issue.triage.pr_status || issue.pr_status;
+  const prBadge = prStatus
+    ? (() => {
+        const labels = { open: "🔵 Open", pending: "⏳ CI…", success: "✅ CI Pass", failure: "❌ CI Fail", merged: "✅ Merged", closed: "🔒 Closed", error: "⚠️ CI Error" };
+        const label = labels[prStatus] || prStatus;
+        return `<span class="badge badge-difficulty" style="cursor:default">PR: ${label}</span>`;
+      })()
+    : "";
+
   const triageBtn = issue.status === "complete" && issue.triage
     ? `<button class="btn-view-triage" onclick="event.stopPropagation(); openTriagePanel(${issue.id})">View Report</button>`
     : issue.status === "error"
@@ -164,6 +173,7 @@ function buildCard(issue) {
             ${scoreBadge}
             ${diffBadge}
             ${priorityBadge}
+            ${prBadge}
             ${labels}
           </div>
           <h2 class="issue-title">
@@ -206,11 +216,20 @@ function renderPanelBody(issue) {
     )
     .join("");
 
-  const prBtn = issue.difficulty === "easy"
-    ? `<div style="margin-top:16px"><button class="btn btn-primary" onclick="openPR(${issue.id})" id="btn-open-pr-${issue.id}">🤖 Open Draft PR</button></div>`
-    : "";
+  const prStatus = issue.triage && issue.triage.pr_status || issue.pr_status;
+  const prUrl = issue.triage && issue.triage.pr_url || issue.pr_url;
+  let prSection = "";
+  if (prUrl) {
+    const labels = { open: "🔵 Open", pending: "⏳ CI Running…", success: "✅ CI Passing", failure: "❌ CI Failing", merged: "✅ Merged", closed: "🔒 Closed", error: "⚠️ CI Error" };
+    prSection = `<div style="margin-top:16px;padding:12px;border:1px solid var(--border);border-radius:8px">
+      <strong>PR: ${labels[prStatus] || prStatus}</strong><br>
+      <a href="${prUrl}" target="_blank" rel="noopener">${prUrl}</a>
+    </div>`;
+  } else if (issue.difficulty === "easy") {
+    prSection = `<div style="margin-top:16px"><button class="btn btn-primary" onclick="openPR(${issue.id})" id="btn-open-pr-${issue.id}">🤖 Open Draft PR</button></div>`;
+  }
 
-  return html + prBtn;
+  return html + prSection;
 }
 
 function animateCardIn(el, delay = 0) {

@@ -25,6 +25,7 @@ from db.store import (
     get_issues_updated_since,
     get_preferences,
     get_priority_repos,
+    get_prs_pending_checks,
     get_stats,
     get_stats_history,
     list_issues,
@@ -32,8 +33,10 @@ from db.store import (
     remove_priority_repo,
     request_poll,
     save_preferences,
+    save_pr_info,
     set_issue_difficulty,
     set_issue_flag,
+    update_pr_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -344,7 +347,10 @@ def _do_open_pr(issue: dict[str, Any]) -> str:
     if pr_resp.status_code not in (201, 200):
         raise ValueError(f"Failed to create PR: HTTP {pr_resp.status_code}")
 
-    pr_url = pr_resp.json().get("html_url", "")
+    pr_data = pr_resp.json()
+    pr_url = pr_data.get("html_url", "")
+    head_sha = pr_data.get("head", {}).get("sha", "")
+    store.save_pr_info(issue["id"], pr_url, head_sha)
     logger.info("Opened draft PR: %s", pr_url)
     return pr_url
 
