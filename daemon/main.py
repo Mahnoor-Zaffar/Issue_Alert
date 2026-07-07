@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import httpx
 import logging
 import os
