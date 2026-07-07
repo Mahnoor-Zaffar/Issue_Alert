@@ -20,11 +20,13 @@ from db.store import (
     dequeue_triage,
     enqueue_triage,
     fetch_pending_webhooks,
+    get_errored_issues_for_retry,
     get_issue,
     get_pending_triage_requests,
     get_preferences,
     get_priority_repos,
     get_prs_pending_checks,
+    increment_retry_count,
     init_db,
     insert_issue,
     insert_triage_report,
@@ -35,6 +37,7 @@ from db.store import (
     parse_difficulty,
     purge_stale_issues,
     record_daily_stats,
+    reset_retry_count,
     update_issue_status,
     update_poll_state,
     update_pr_status,
@@ -317,7 +320,65 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
     )
 
     record_daily_stats()
+    await retry_errored_issues()
     await check_pr_checks()
+
+
+async def retry_errored_issues() -> None:
+    errored = get_errored_issues_for_retry()
+    if not errored:
+        return
+    for issue_row in errored:
+        issue_id = issue_row["id"]
+        logger.info("Retrying triage for issue #%d (attempt %d)", issue_id, issue_row.get("retry_count", 0) + 1)
+        increment_retry_count(issue_id)
+        issue_data = {
+            "title": issue_row["title"],
+            "body": issue_row.get("body", ""),
+            "html_url": issue_row["html_url"],
+            "repo_full_name": issue_row["repo_full_name"],
+            "repo_clone_url": issue_row["repo_clone_url"],
+            "labels": issue_row.get("labels", []),
+            "language": issue_row.get("language"),
+            "github_id": issue_row.get("github_id"),
+        }
+        if isinstance(issue_data["labels"], str):
+            import json
+            issue_data["labels"] = json.loads(issue_data["labels"])
+        if issue_data["github_id"] is None:
+            continue
+        from daemon.triage import TriageEngine
+        triage_engine = TriageEngine()
+        try:
+            update_issue_status(issue_id, "extracting")
+            file_context, file_paths = await asyncio.to_thread(
+                extract_repo_context, issue_row["repo_clone_url"]
+            )
+            update_issue_status(issue_id, "triaging")
+            result = await triage_engine.triage(
+                title=issue_data["title"],
+                body=issue_data.get("body", ""),
+                labels=issue_data["labels"],
+                language=issue_data.get("language"),
+                repo_url=issue_data["html_url"],
+                file_context=file_context,
+                file_paths=file_paths,
+            )
+            difficulty = parse_difficulty(result["action_plan"])
+            insert_triage_report(
+                issue_id=issue_id,
+                architecture_context=result["architecture_context"],
+                issue_breakdown=result["issue_breakdown"],
+                action_plan=result["action_plan"],
+                raw_response=result["raw_response"],
+                difficulty=difficulty,
+            )
+            update_issue_status(issue_id, "complete")
+            reset_retry_count(issue_id)
+            logger.info("Retry triage succeeded for issue #%d", issue_id)
+        except Exception as exc:
+            logger.exception("Retry triage failed for issue #%d", issue_id)
+            update_issue_status(issue_id, "error", str(exc))
 
 
 async def check_pr_checks() -> None:

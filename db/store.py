@@ -23,6 +23,7 @@ MIGRATIONS = [
     "ALTER TABLE triage_reports ADD COLUMN pr_head_sha TEXT",
     "ALTER TABLE triage_reports ADD COLUMN pr_status TEXT",
     "ALTER TABLE triage_reports ADD COLUMN pr_checked_at TEXT",
+    "ALTER TABLE issues ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -796,4 +797,39 @@ def update_pr_status(issue_id: int, status: str) -> None:
         conn.execute(
             "UPDATE issues SET updated_at = ? WHERE id = ?",
             (now, issue_id),
+        )
+
+
+def get_errored_issues_for_retry(max_retries: int = 3) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT i.*
+               FROM issues i
+               WHERE i.status = 'error'
+                 AND (i.retry_count IS NULL OR i.retry_count < ?)
+                 AND (
+                   i.updated_at IS NULL
+                   OR datetime(i.updated_at, '+' || (1 << (i.retry_count + 1)) || ' minutes') <= datetime('now')
+                 )
+               ORDER BY i.updated_at ASC
+               LIMIT 10""",
+            (max_retries,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def increment_retry_count(issue_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE issues SET retry_count = COALESCE(retry_count, 0) + 1, updated_at = ? WHERE id = ?",
+            (_utcnow(), issue_id),
+        )
+
+
+def reset_retry_count(issue_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE issues SET retry_count = 0, updated_at = ? WHERE id = ?",
+            (_utcnow(), issue_id),
         )
