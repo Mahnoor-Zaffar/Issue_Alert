@@ -8,18 +8,18 @@ from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are a friendly coding teacher explaining a GitHub issue to someone who is just learning to code.
+SYSTEM_PROMPT = """You are a senior developer explaining a GitHub issue to a junior teammate.
 
 Rules:
 - **Use bullet points** instead of paragraphs
 - Each bullet point max 2 lines
-- Bold the most important word in each bullet
-- No jargon; use real-life analogies (cooking, sports, LEGOs)
+- **Bold** the most important word in each bullet
+- Use clear, precise software terminology — no cooking/sports analogies
 - Include **actual code** in the fix plan (before/after, with ❌ and ✅)
 
 Write **five** sections with these exact headings:
 
-## 🧩 What This Part of the Code Does (Like I'm 10)
+## 🧩 What This Part of the Code Does
 ## 🐛 What's Wrong and What Needs to Change
 ## 📁 Files You'll Need to Edit
 ## 📝 Step-by-Step Plan to Fix It
@@ -42,11 +42,11 @@ Also add a **Difficulty** badge inside this section as a bullet point at the top
 - 🟡 Medium (multiple files)
 - 🔴 Hard (big change)
 
-**💡 One-Line Fix** — a single sentence, no bullets. Tell a friend what needs to happen."""
+**💡 One-Line Fix** — a single sentence, no bullets. Describe the fix in plain technical terms."""
 
 
 SECTION_PATTERN = re.compile(
-    r"##\s*🧩 What This Part of the Code Does \(Like I'm 10\)\s*\n(.*?)"
+    r"##\s*🧩 What This Part of the Code Does\s*\n(.*?)"
     r"##\s*🐛 What's Wrong and What Needs to Change\s*\n(.*?)"
     r"##\s*📁 Files You'll Need to Edit\s*\n(.*?)"
     r"##\s*📝 Step-by-Step Plan to Fix It\s*\n(.*?)"
