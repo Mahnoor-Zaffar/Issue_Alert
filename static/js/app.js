@@ -137,7 +137,7 @@ function buildCard(issue) {
 
   const diff = parseDifficulty(issue);
   const diffBadge = diff
-    ? `<span class="badge badge-difficulty ${diff.level}">${diff.label}</span>`
+    ? `<span class="badge badge-difficulty ${diff.level}" onclick="event.stopPropagation(); cycleDifficulty(${issue.id})" style="cursor:pointer" title="Click to change difficulty">${diff.label} ▼</span>`
     : "";
 
   const priorityBadge = issue.is_priority
@@ -531,6 +531,24 @@ async function removePriorityRepo(id) {
   await loadPriorityRepos();
 }
 
+// ── Difficulty Override ────────────────────────────────────
+
+async function cycleDifficulty(id) {
+  const issue = issueMap.get(id) || priorityMap.get(id);
+  if (!issue) return;
+  const order = ["easy", "medium", "hard"];
+  const next = order[(order.indexOf(issue.difficulty) + 1) % order.length];
+  const res = await fetch(apiUrl(`/api/issues/${id}/difficulty`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ difficulty: next }),
+  });
+  if (res.ok) {
+    const updated = await res.json();
+    upsertIssue(updated, false);
+  }
+}
+
 // ── Open PR ───────────────────────────────────────────────
 
 async function openPR(id) {
@@ -622,6 +640,7 @@ window.toggleBookmark = toggleBookmark;
 window.dismissIssue = dismissIssue;
 window.exportTriage = exportTriage;
 window.openPR = openPR;
+window.cycleDifficulty = cycleDifficulty;
 window.handleCardClick = handleCardClick;
 window.handleIssueLinkClick = handleIssueLinkClick;
 

@@ -736,3 +736,14 @@ def remove_priority_repo(repo_id: int) -> bool:
     with get_connection() as conn:
         cursor = conn.execute("DELETE FROM priority_repos WHERE id = ?", (repo_id,))
         return cursor.rowcount > 0
+
+
+def set_issue_difficulty(issue_id: int, difficulty: str | None) -> bool:
+    if difficulty not in ("easy", "medium", "hard", None):
+        return False
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE triage_reports SET difficulty = ? WHERE issue_id = ?",
+            (difficulty, issue_id),
+        )
+        return cursor.rowcount > 0

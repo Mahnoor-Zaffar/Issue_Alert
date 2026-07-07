@@ -32,6 +32,7 @@ from db.store import (
     remove_priority_repo,
     request_poll,
     save_preferences,
+    set_issue_difficulty,
     set_issue_flag,
 )
 
@@ -159,6 +160,20 @@ async def api_open_pr(issue_id: int):
     except Exception as e:
         logger.exception("Failed to open PR for issue #%d", issue_id)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class DifficultyBody(BaseModel):
+    difficulty: str | None = None
+
+
+@router.post("/api/issues/{issue_id}/difficulty")
+async def api_set_difficulty(issue_id: int, body: DifficultyBody):
+    issue = get_issue(issue_id)
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    if not set_issue_difficulty(issue_id, body.difficulty):
+        raise HTTPException(status_code=400, detail="Invalid difficulty (use: easy, medium, hard)")
+    return get_issue(issue_id)
 
 import httpx
 
