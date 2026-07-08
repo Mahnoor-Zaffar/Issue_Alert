@@ -21,39 +21,56 @@ function Badge({ children, className = "" }) {
   );
 }
 
-export default function IssueCard({ issue, onTriageClick }) {
+export default function IssueCard({ issue, onTriageClick, showToast }) {
   const [saving, setSaving] = useState(false);
+  const [bodyExpanded, setBodyExpanded] = useState(false);
 
   const handleCycleDifficulty = useCallback(
     async (e) => {
       e.stopPropagation();
       const order = ["easy", "medium", "hard"];
       const next = order[(order.indexOf(issue.difficulty) + 1) % order.length];
-      await setDifficulty(issue.id, next);
+      try {
+        await setDifficulty(issue.id, next);
+        showToast?.("Difficulty updated", "success");
+      } catch {
+        showToast?.("Failed to update difficulty", "error");
+      }
     },
-    [issue.id, issue.difficulty]
+    [issue.id, issue.difficulty, showToast]
   );
 
   const handleBookmark = useCallback(
     async (e) => {
       e.stopPropagation();
       setSaving(true);
-      await setBookmark(issue.id, !issue.bookmarked);
+      try {
+        await setBookmark(issue.id, !issue.bookmarked);
+        showToast?.(issue.bookmarked ? "Bookmark removed" : "Bookmarked", "success");
+      } catch {
+        showToast?.("Failed to bookmark", "error");
+      }
       setSaving(false);
     },
-    [issue.id, issue.bookmarked]
+    [issue.id, issue.bookmarked, showToast]
   );
 
   const handleDismiss = useCallback(
     async (e) => {
       e.stopPropagation();
-      await dismissIssue(issue.id);
+      try {
+        await dismissIssue(issue.id);
+        showToast?.("Dismissed", "success");
+      } catch {
+        showToast?.("Failed to dismiss", "error");
+      }
     },
-    [issue.id]
+    [issue.id, showToast]
   );
 
   const prStatus = issue.triage?.pr_status;
   const hasPR = !!issue.triage?.pr_url;
+  const bodyLong = issue.body && issue.body.length > 200;
 
   return (
     <div
@@ -131,9 +148,23 @@ export default function IssueCard({ issue, onTriageClick }) {
             </h3>
 
             {issue.body && (
-              <p className="mt-[6px] text-[12.5px] text-ink-subtle leading-[1.55] line-clamp-2">
-                {issue.body}
-              </p>
+              <div>
+                <p
+                  className={`mt-[6px] text-[12.5px] text-ink-subtle leading-[1.55] ${
+                    bodyExpanded ? "" : "line-clamp-2"
+                  }`}
+                >
+                  {issue.body}
+                </p>
+                {bodyLong && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setBodyExpanded((v) => !v); }}
+                    className="mt-[2px] text-[11px] font-medium text-primary hover:text-primary-hover transition-colors bg-transparent border-none cursor-pointer"
+                  >
+                    {bodyExpanded ? "Show less" : "Show more"}
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -191,6 +222,10 @@ export default function IssueCard({ issue, onTriageClick }) {
           )}
 
           <div className="flex-1" />
+
+          <span className="text-[10px] text-ink-tertiary mr-1">
+            #{issue.number}
+          </span>
 
           <button
             onClick={handleDismiss}

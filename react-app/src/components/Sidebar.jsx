@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  triggerPoll,
   fetchPreferences,
   savePreferences,
   fetchPriorityRepos,
@@ -8,9 +7,24 @@ import {
   removePriorityRepo,
 } from "../api";
 
-export default function Sidebar({ stats, connected, onRefresh }) {
+function Sparkline({ data, height = 28, width = 180 }) {
+  if (!data || data.length < 2) return null;
+  const values = data.map((d) => d.triaged);
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const stepX = width / (values.length - 1);
+  const points = values.map((v, i) => `${i * stepX},${height - ((v - min) / range) * (height - 4) - 2}`).join(" ");
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="w-full">
+      <polyline points={points} fill="none" stroke="var(--color-primary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={points.split(" ").pop().split(",")[0]} cy={points.split(" ").pop().split(",")[1]} r="2" fill="var(--color-primary)" />
+    </svg>
+  );
+}
+
+export default function Sidebar({ stats, statsHistory, connected, onPollNow, onRefresh, showToast }) {
   const [polling, setPolling] = useState(false);
-  const [pollMsg, setPollMsg] = useState("");
   const [prefs, setPrefs] = useState(null);
   const [priorityRepos, setPriorityRepos] = useState([]);
   const [repoInput, setRepoInput] = useState("");
@@ -22,23 +36,22 @@ export default function Sidebar({ stats, connected, onRefresh }) {
 
   const handlePollNow = useCallback(async () => {
     setPolling(true);
-    setPollMsg("Polling…");
     try {
-      await triggerPoll();
-      setPollMsg("Poll requested!");
-    } catch {
-      setPollMsg("Poll failed");
+      await onPollNow();
+    } finally {
+      setPolling(false);
     }
-    setPolling(false);
-    setTimeout(() => setPollMsg(""), 3000);
-  }, []);
+  }, [onPollNow]);
 
   const handleSavePrefs = useCallback(async () => {
     if (!prefs) return;
     try {
       await savePreferences(prefs);
-    } catch {}
-  }, [prefs]);
+      showToast("Preferences saved", "success");
+    } catch {
+      showToast("Failed to save preferences", "error");
+    }
+  }, [prefs, showToast]);
 
   const handleAddRepo = useCallback(async () => {
     const name = repoInput.trim();
@@ -47,15 +60,20 @@ export default function Sidebar({ stats, connected, onRefresh }) {
       const result = await addPriorityRepo(name);
       setPriorityRepos((prev) => [...prev, result]);
       setRepoInput("");
-    } catch {}
-  }, [repoInput]);
+      showToast(`Added ${name}`, "success");
+    } catch {
+      showToast("Failed to add repo", "error");
+    }
+  }, [repoInput, showToast]);
 
   const handleRemoveRepo = useCallback(async (id) => {
     try {
       await removePriorityRepo(id);
       setPriorityRepos((prev) => prev.filter((r) => r.id !== id));
-    } catch {}
-  }, []);
+    } catch {
+      showToast("Failed to remove repo", "error");
+    }
+  }, [showToast]);
 
   return (
     <aside className="w-[240px] shrink-0 h-screen sticky top-0 flex flex-col gap-4 p-4 border-r border-hairline bg-canvas overflow-y-auto">
@@ -95,6 +113,20 @@ export default function Sidebar({ stats, connected, onRefresh }) {
         </div>
       </div>
 
+      {/* Sparkline */}
+      {statsHistory?.length >= 2 && (
+        <div className="bg-surface-1 border border-hairline rounded-md p-[10px]">
+          <div className="text-[11px] font-medium text-ink-subtle uppercase tracking-[0.04em] mb-[6px]">
+            14-day Activity
+          </div>
+          <Sparkline data={statsHistory} />
+          <div className="flex justify-between text-[9px] text-ink-tertiary mt-[2px]">
+            <span>{statsHistory[0]?.date?.slice(5)}</span>
+            <span>{statsHistory[statsHistory.length - 1]?.date?.slice(5)}</span>
+          </div>
+        </div>
+      )}
+
       {/* Poll status */}
       <div className="bg-surface-1 border border-hairline rounded-md p-[10px]">
         <div className="text-[11px] font-medium text-ink-subtle uppercase tracking-[0.04em]">
@@ -102,6 +134,10 @@ export default function Sidebar({ stats, connected, onRefresh }) {
         </div>
         <div className="text-[12px] text-ink-muted mt-[2px] leading-snug">
           {stats?.last_poll_message || "Waiting..."}
+        </div>
+        <div className="text-[10px] text-ink-tertiary mt-[2px]">
+          {stats?.last_poll_fetched != null && `${stats.last_poll_fetched} fetched`}
+          {stats?.last_poll_new != null && `, ${stats.last_poll_new} new`}
         </div>
       </div>
 
@@ -120,9 +156,6 @@ export default function Sidebar({ stats, connected, onRefresh }) {
         >
           Refresh
         </button>
-        {pollMsg && (
-          <span className="text-[11px] text-primary text-center">{pollMsg}</span>
-        )}
       </div>
 
       {/* Priority Repos */}

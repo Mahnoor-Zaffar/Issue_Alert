@@ -22,7 +22,7 @@ const PR_STATUS_LABELS = {
   error: "CI Error",
 };
 
-export default function TriagePanel({ issue, onClose }) {
+export default function TriagePanel({ issue, onClose, showToast }) {
   const [prDetails, setPRDetails] = useState(null);
   const [prLoading, setPRLoading] = useState(false);
   const [prOpening, setPROpening] = useState(false);
@@ -43,20 +43,25 @@ export default function TriagePanel({ issue, onClose }) {
     try {
       const data = await reTriage(issue.id);
       setRetriageMsg(data?.message || "Re-triage queued");
+      showToast?.("Re-triage queued", "success");
     } catch (e) {
       setRetriageMsg(e?.message || "Re-triage failed");
+      showToast?.(e?.message || "Re-triage failed", "error");
     }
     setRetriaging(false);
-  }, [issue.id]);
+  }, [issue.id, showToast]);
 
   const handleOpenPR = useCallback(async () => {
     setPROpening(true);
     try {
       const data = await openPR(issue.id);
       if (data.pr_url) window.open(data.pr_url, "_blank");
-    } catch {}
+      showToast?.("PR opened in new tab", "success");
+    } catch (e) {
+      showToast?.(e?.message || "Failed to open PR", "error");
+    }
     setPROpening(false);
-  }, [issue.id]);
+  }, [issue.id, showToast]);
 
   const handleLoadPRDetails = useCallback(async () => {
     if (prDetails || !prUrl) return;
@@ -64,17 +69,20 @@ export default function TriagePanel({ issue, onClose }) {
     try {
       const data = await fetchPRDetails(prUrl);
       setPRDetails(data);
-    } catch {}
+    } catch {
+      showToast?.("Failed to load PR details", "error");
+    }
     setPRLoading(false);
-  }, [prUrl, prDetails]);
+  }, [prUrl, prDetails, showToast]);
 
   const handleCopy = useCallback(() => {
     if (!claimComment) return;
     navigator.clipboard.writeText(claimComment).then(() => {
       setCopied(true);
+      showToast?.("Copied to clipboard", "success");
       setTimeout(() => setCopied(false), 2000);
     });
-  }, [claimComment]);
+  }, [claimComment, showToast]);
 
   const renderMD = (text) => {
     if (!text) return null;
