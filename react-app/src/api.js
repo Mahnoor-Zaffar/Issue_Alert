@@ -19,6 +19,25 @@ async function post(path, body) {
   return res.json();
 }
 
+async function put(path, body) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+async function del(path) {
+  const res = await fetch(`${BASE}${path}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 export function fetchIssues(params = {}) {
   const q = new URLSearchParams(
     Object.fromEntries(Object.entries(params).filter(([_, v]) => v != null && v !== ""))
@@ -60,4 +79,28 @@ export function fetchStats() {
 
 export function fetchStatsHistory() {
   return get("/api/stats/history?days=14");
+}
+
+export function triggerPoll() {
+  return post("/api/trigger-poll");
+}
+
+export function fetchPreferences() {
+  return get("/api/preferences");
+}
+
+export function savePreferences(prefs) {
+  return put("/api/preferences", prefs);
+}
+
+export function fetchPriorityRepos() {
+  return get("/api/priority-repos");
+}
+
+export function addPriorityRepo(fullName) {
+  return post("/api/priority-repos", { full_name: fullName });
+}
+
+export function removePriorityRepo(id) {
+  return del(`/api/priority-repos/${id}`);
 }

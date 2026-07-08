@@ -27,6 +27,7 @@ export default function TriagePanel({ issue, onClose }) {
   const [prLoading, setPRLoading] = useState(false);
   const [prOpening, setPROpening] = useState(false);
   const [retriaging, setRetriaging] = useState(false);
+  const [retriageMsg, setRetriageMsg] = useState("");
   const [copied, setCopied] = useState(false);
 
   const t = issue?.triage;
@@ -38,9 +39,13 @@ export default function TriagePanel({ issue, onClose }) {
 
   const handleReTriage = useCallback(async () => {
     setRetriaging(true);
+    setRetriageMsg("");
     try {
-      await reTriage(issue.id);
-    } catch {}
+      const data = await reTriage(issue.id);
+      setRetriageMsg(data?.message || "Re-triage queued");
+    } catch (e) {
+      setRetriageMsg(e?.message || "Re-triage failed");
+    }
     setRetriaging(false);
   }, [issue.id]);
 
@@ -208,6 +213,9 @@ export default function TriagePanel({ issue, onClose }) {
               {retriaging ? "Re-triaging…" : "↻ Re-triage"}
             </button>
           </div>
+          {retriageMsg && (
+            <p className="text-xs text-ink-muted mt-2 italic">{retriageMsg}</p>
+          )}
         </div>
       </div>
     </>

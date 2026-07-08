@@ -101,12 +101,6 @@ export default function App() {
     loadIssues();
   }, [filterLang, filterStatus, filterDiff, filterSaved, filterPriority]);
 
-  const handlePollNow = useCallback(async () => {
-    try {
-      await fetch("/api/trigger-poll", { method: "POST" });
-    } catch {}
-  }, []);
-
   const handleRefresh = useCallback(() => {
     loadIssues();
     loadStats();
@@ -124,7 +118,6 @@ export default function App() {
       <Sidebar
         stats={stats}
         connected={connected}
-        onPollNow={handlePollNow}
         onRefresh={handleRefresh}
       />
 
