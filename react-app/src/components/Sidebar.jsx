@@ -6,6 +6,7 @@ import {
   addPriorityRepo,
   removePriorityRepo,
   fetchRateLimit,
+  fetchDaemonLog,
 } from "../api";
 
 function Sparkline({ data, height = 28, width = 180 }) {
@@ -30,15 +31,25 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
   const [priorityRepos, setPriorityRepos] = useState([]);
   const [repoInput, setRepoInput] = useState("");
   const [rateLimit, setRateLimit] = useState(null);
+  const [logLines, setLogLines] = useState([]);
+  const [logOpen, setLogOpen] = useState(false);
 
   useEffect(() => {
     fetchPreferences().then(setPrefs).catch(() => {});
     fetchPriorityRepos().then((d) => setPriorityRepos(d.repos || [])).catch(() => {});
-    const load = () => fetchRateLimit().then(setRateLimit).catch(() => {});
-    load();
-    const iv = setInterval(load, 30000);
+    const loadRL = () => fetchRateLimit().then(setRateLimit).catch(() => {});
+    loadRL();
+    const iv = setInterval(loadRL, 30000);
     return () => clearInterval(iv);
   }, []);
+
+  useEffect(() => {
+    if (!logOpen) return;
+    const load = () => fetchDaemonLog(30).then((d) => setLogLines(d.lines || [])).catch(() => {});
+    load();
+    const iv = setInterval(load, 5000);
+    return () => clearInterval(iv);
+  }, [logOpen]);
 
   const handlePollNow = useCallback(async () => {
     setPolling(true);
@@ -82,7 +93,6 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
   }, [showToast]);
 
   const remaining = rateLimit?.remaining;
-  const resetEpoch = rateLimit?.reset_epoch;
   const ratePct = remaining != null ? Math.round((remaining / 5000) * 100) : null;
 
   return (
@@ -284,6 +294,33 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
           >
             Save Preferences
           </button>
+        </div>
+      </details>
+
+      {/* Daemon Log */}
+      <details
+        open={logOpen}
+        onToggle={(e) => setLogOpen(e.currentTarget.open)}
+        className="bg-surface-1 border border-hairline rounded-md [&>summary]:list-none"
+      >
+        <summary className="text-[12px] font-semibold text-ink-muted px-[10px] py-[8px] cursor-pointer hover:text-ink transition-colors select-none flex items-center justify-between">
+          Daemon Log
+          {logLines.length > 0 && (
+            <span className="text-[9px] text-ink-tertiary font-normal">{logLines.length}</span>
+          )}
+        </summary>
+        <div className="px-[10px] pb-[10px]">
+          <div className="max-h-[160px] overflow-y-auto text-[9px] text-ink-muted leading-[1.6] font-mono bg-canvas rounded-md p-[6px]">
+            {logLines.length === 0 ? (
+              <span className="text-ink-tertiary">No log entries</span>
+            ) : (
+              logLines.map((line, i) => (
+                <div key={i} className="truncate hover:text-ink transition-colors">
+                  {line}
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </details>
 

@@ -29,7 +29,33 @@ const LABEL_OPTIONS = [
   { value: "open source", label: "open source" },
 ];
 
+const SORT_OPTIONS = [
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+  { value: "stars_desc", label: "Most Stars" },
+  { value: "stars_asc", label: "Least Stars" },
+  { value: "repo", label: "Repo A-Z" },
+];
+
 const PAGE_SIZE = 30;
+
+function playPriorityChime() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+    osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.1); // E5
+    osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.2); // G5
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.5);
+  } catch {}
+}
 
 function readFilters() {
   const p = new URLSearchParams(location.search);
@@ -40,6 +66,8 @@ function readFilters() {
     filterLabel: p.get("label") || "",
     filterSaved: p.get("saved") === "1",
     filterPriority: p.get("priority") === "1",
+    searchQuery: p.get("q") || "",
+    sortBy: p.get("sort") || "newest",
   };
 }
 
@@ -51,9 +79,32 @@ function writeFilters(filters) {
   if (filters.filterLabel) p.set("label", filters.filterLabel);
   if (filters.filterSaved) p.set("saved", "1");
   if (filters.filterPriority) p.set("priority", "1");
+  if (filters.searchQuery) p.set("q", filters.searchQuery);
+  if (filters.sortBy && filters.sortBy !== "newest") p.set("sort", filters.sortBy);
   const q = p.toString();
   const url = q ? `?${q}` : location.pathname;
   history.replaceState(null, "", url);
+}
+
+function sortIssues(list, sortBy) {
+  const sorted = [...list];
+  switch (sortBy) {
+    case "oldest":
+      sorted.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      break;
+    case "stars_desc":
+      sorted.sort((a, b) => (b.repo_stars || 0) - (a.repo_stars || 0));
+      break;
+    case "stars_asc":
+      sorted.sort((a, b) => (a.repo_stars || 0) - (b.repo_stars || 0));
+      break;
+    case "repo":
+      sorted.sort((a, b) => (a.repo_full_name || "").localeCompare(b.repo_full_name || ""));
+      break;
+    default:
+      sorted.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+  return sorted;
 }
 
 export default function App() {
@@ -74,17 +125,19 @@ export default function App() {
   const [filterLabel, setFilterLabel] = useState(initial.filterLabel);
   const [filterSaved, setFilterSaved] = useState(initial.filterSaved);
   const [filterPriority, setFilterPriority] = useState(initial.filterPriority);
+  const [searchQuery, setSearchQuery] = useState(initial.searchQuery);
+  const [sortBy, setSortBy] = useState(initial.sortBy);
 
   const loadRef = useRef(0);
+  const knownIds = useRef(new Set());
 
   const showToast = useCallback((message, type = "info", action = null) => {
     setToast({ message, type, action });
   }, []);
 
-  // Persist filters to URL
   useEffect(() => {
-    writeFilters({ filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority });
-  }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority]);
+    writeFilters({ filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, searchQuery, sortBy });
+  }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, searchQuery, sortBy]);
 
   const loadIssues = useCallback(async (append = false) => {
     const id = ++loadRef.current;
@@ -110,6 +163,7 @@ export default function App() {
         setIssues(list.filter((i) => !i.is_priority));
         setOffset(0);
       }
+      list.forEach((i) => knownIds.current.add(i.id));
     } catch {
       showToast("Failed to load issues", "error");
     }
@@ -128,6 +182,14 @@ export default function App() {
 
   useSSE({
     onIssueUpdate: useCallback((updated) => {
+      const isNew = !knownIds.current.has(updated.id);
+      knownIds.current.add(updated.id);
+
+      if (isNew && updated.is_priority) {
+        playPriorityChime();
+        showToast(`🔔 New priority: ${updated.title.slice(0, 60)}`, "info");
+      }
+
       setIssues((prev) => {
         const idx = prev.findIndex((i) => i.id === updated.id);
         if (idx >= 0) {
@@ -146,7 +208,7 @@ export default function App() {
         }
         return prev;
       });
-    }, []),
+    }, [showToast]),
     onStatsUpdate: useCallback((s) => setStats(s), []),
     onConnected: useCallback((c) => setConnected(c), []),
   });
@@ -185,7 +247,6 @@ export default function App() {
     setPanelIssue(issue);
   }, []);
 
-  // Dismiss with undo
   const [lastDismissed, setLastDismissed] = useState(null);
   const handleDismiss = useCallback((issue) => {
     setLastDismissed(issue);
@@ -207,7 +268,6 @@ export default function App() {
     });
   }, [showToast, loadIssues]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
@@ -218,6 +278,21 @@ export default function App() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [handlePollNow, handleRefresh]);
+
+  // Frontend search + sort
+  const filterBySearch = (list) => {
+    if (!searchQuery) return list;
+    const q = searchQuery.toLowerCase();
+    return list.filter(
+      (i) =>
+        (i.title || "").toLowerCase().includes(q) ||
+        (i.body || "").toLowerCase().includes(q) ||
+        (i.repo_full_name || "").toLowerCase().includes(q)
+    );
+  };
+
+  const displayPriority = sortIssues(filterBySearch(priorityIssues), sortBy);
+  const displayIssues = sortIssues(filterBySearch(issues), sortBy);
 
   return (
     <div className="flex min-h-screen">
@@ -238,7 +313,19 @@ export default function App() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-5">
+        <div className="flex flex-wrap gap-2 mb-5 items-center">
+          <div className="relative flex-1 min-w-[160px] max-w-[240px]">
+            <svg className="absolute left-[8px] top-1/2 -translate-y-1/2 w-[14px] h-[14px] text-ink-tertiary pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" strokeLinecap="round" />
+            </svg>
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search issues..."
+              className="w-full bg-surface-1 border border-hairline rounded-md pl-[28px] pr-[10px] py-[7px] text-[12px] text-ink outline-none placeholder:text-ink-tertiary"
+            />
+          </div>
+
           <select
             value={filterLang}
             onChange={(e) => setFilterLang(e.target.value)}
@@ -281,35 +368,45 @@ export default function App() {
             ))}
           </select>
 
-          <label className="flex items-center gap-[5px] text-[12px] text-ink-muted cursor-pointer select-none">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="bg-surface-1 border border-hairline rounded-md px-[10px] py-[7px] text-[12px] text-ink outline-none cursor-pointer"
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+
+          <label className="flex items-center gap-[5px] text-[12px] text-ink-muted cursor-pointer select-none shrink-0">
             <input
               type="checkbox"
               checked={filterSaved}
               onChange={(e) => setFilterSaved(e.target.checked)}
               className="accent-primary"
             />
-            Saved only
+            Saved
           </label>
 
-          <label className="flex items-center gap-[5px] text-[12px] text-ink-muted cursor-pointer select-none">
+          <label className="flex items-center gap-[5px] text-[12px] text-ink-muted cursor-pointer select-none shrink-0">
             <input
               type="checkbox"
               checked={filterPriority}
               onChange={(e) => setFilterPriority(e.target.checked)}
               className="accent-primary"
             />
-            Priority only
+            Priority
           </label>
         </div>
 
-        {priorityIssues.length > 0 && (
+        {displayPriority.length > 0 && (
           <div className="mb-5">
             <h2 className="text-[15px] font-semibold tracking-[-0.01em] flex items-center gap-2 mb-3">
               <span className="w-[6px] h-[6px] rounded-full bg-warning animate-pulse" />
               Priority Issues
             </h2>
             <div className="flex flex-col gap-[10px]">
-              {priorityIssues.map((issue) => (
+              {displayPriority.map((issue) => (
                 <IssueCard key={issue.id} issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} />
               ))}
             </div>
@@ -321,21 +418,21 @@ export default function App() {
         </h2>
 
         <div className="flex flex-col gap-[10px]">
-          {issues.length === 0 ? (
+          {displayIssues.length === 0 ? (
             <div className="text-center py-16 text-ink-subtle">
-              <p className="text-[14px] mb-1">Waiting for issues...</p>
+              <p className="text-[14px] mb-1">No issues match your filters</p>
               <span className="text-[12px] text-ink-tertiary">
-                The daemon polls GitHub every 60s.
+                Try adjusting the search or filter criteria.
               </span>
             </div>
           ) : (
-            issues.map((issue) => (
+            displayIssues.map((issue) => (
               <IssueCard key={issue.id} issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} />
             ))
           )}
         </div>
 
-        {hasMore && issues.length > 0 && (
+        {hasMore && displayIssues.length > 0 && (
           <button
             onClick={handleLoadMore}
             className="w-full mt-4 text-[13px] font-medium px-[14px] py-[9px] rounded-md bg-surface-1 text-ink-muted border border-hairline hover:bg-surface-2 hover:text-ink transition-colors cursor-pointer"

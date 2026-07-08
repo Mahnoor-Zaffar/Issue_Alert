@@ -147,6 +147,19 @@ async def api_rate_limit():
     return read_rate_limit()
 
 
+@router.get("/api/daemon-log")
+async def api_daemon_log(lines: int = 50):
+    log_file = Path(__file__).resolve().parent.parent / "data" / "daemon.log"
+    if not log_file.exists():
+        return {"lines": []}
+    try:
+        text = log_file.read_text(encoding="utf-8", errors="replace")
+        all_lines = text.splitlines()
+        return {"lines": all_lines[-lines:]}
+    except OSError:
+        return {"lines": []}
+
+
 @router.get("/api/stats/history")
 async def api_stats_history(days: int = 14):
     return {"history": get_stats_history(days)}

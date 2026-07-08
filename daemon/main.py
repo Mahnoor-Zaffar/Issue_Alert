@@ -3,6 +3,7 @@ import httpx
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
@@ -43,9 +44,16 @@ from db.store import (
     update_pr_status,
 )
 
+LOG_FILE = Path(__file__).resolve().parent.parent / "data" / "daemon.log"
+LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        RotatingFileHandler(LOG_FILE, maxBytes=1024 * 512, backupCount=2),
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 logger = logging.getLogger(__name__)
 DAEMON_LOCK = settings.database_path.parent / "daemon.pid"

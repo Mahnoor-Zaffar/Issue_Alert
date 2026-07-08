@@ -108,3 +108,7 @@ export function removePriorityRepo(id) {
 export function fetchRateLimit() {
   return get("/api/rate-limit");
 }
+
+export function fetchDaemonLog(lines = 50) {
+  return get(`/api/daemon-log?lines=${lines}`);
+}
