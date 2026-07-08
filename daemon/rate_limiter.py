@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from db.rate_limit_store import save_rate_limit
+
 logger = logging.getLogger(__name__)
 
 # GitHub Search API: 30 authenticated requests per minute.
@@ -29,6 +31,7 @@ class GitHubRateLimiter:
             self._state.remaining = int(remaining)
         if reset is not None:
             self._state.reset_epoch = int(reset)
+        save_rate_limit(self._state.remaining, self._state.reset_epoch)
 
     async def wait_if_needed(self) -> None:
         now = time.time()

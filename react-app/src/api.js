@@ -104,3 +104,7 @@ export function addPriorityRepo(fullName) {
 export function removePriorityRepo(id) {
   return del(`/api/priority-repos/${id}`);
 }
+
+export function fetchRateLimit() {
+  return get("/api/rate-limit");
+}

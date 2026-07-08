@@ -5,6 +5,7 @@ import {
   fetchPriorityRepos,
   addPriorityRepo,
   removePriorityRepo,
+  fetchRateLimit,
 } from "../api";
 
 function Sparkline({ data, height = 28, width = 180 }) {
@@ -28,10 +29,15 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
   const [prefs, setPrefs] = useState(null);
   const [priorityRepos, setPriorityRepos] = useState([]);
   const [repoInput, setRepoInput] = useState("");
+  const [rateLimit, setRateLimit] = useState(null);
 
   useEffect(() => {
     fetchPreferences().then(setPrefs).catch(() => {});
     fetchPriorityRepos().then((d) => setPriorityRepos(d.repos || [])).catch(() => {});
+    const load = () => fetchRateLimit().then(setRateLimit).catch(() => {});
+    load();
+    const iv = setInterval(load, 30000);
+    return () => clearInterval(iv);
   }, []);
 
   const handlePollNow = useCallback(async () => {
@@ -74,6 +80,10 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
       showToast("Failed to remove repo", "error");
     }
   }, [showToast]);
+
+  const remaining = rateLimit?.remaining;
+  const resetEpoch = rateLimit?.reset_epoch;
+  const ratePct = remaining != null ? Math.round((remaining / 5000) * 100) : null;
 
   return (
     <aside className="w-[240px] shrink-0 h-screen sticky top-0 flex flex-col gap-4 p-4 border-r border-hairline bg-canvas overflow-y-auto">
@@ -123,6 +133,28 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
           <div className="flex justify-between text-[9px] text-ink-tertiary mt-[2px]">
             <span>{statsHistory[0]?.date?.slice(5)}</span>
             <span>{statsHistory[statsHistory.length - 1]?.date?.slice(5)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Rate limit */}
+      {rateLimit && remaining != null && (
+        <div className="bg-surface-1 border border-hairline rounded-md p-[10px]">
+          <div className="text-[11px] font-medium text-ink-subtle uppercase tracking-[0.04em] mb-[4px]">
+            API Rate Limit
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-[6px] rounded-full bg-hairline overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  ratePct > 20 ? "bg-primary" : "bg-error"
+                }`}
+                style={{ width: `${ratePct}%` }}
+              />
+            </div>
+            <span className={`text-[11px] font-medium shrink-0 ${ratePct <= 20 ? "text-error" : "text-ink-muted"}`}>
+              {remaining}
+            </span>
           </div>
         </div>
       )}

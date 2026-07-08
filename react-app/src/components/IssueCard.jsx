@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { setDifficulty, setBookmark, dismissIssue } from "../api";
+import { timeAgo } from "../utils";
 
 const DIFFICULTY_LABELS = { easy: "Easy", medium: "Medium", hard: "Hard" };
 const STATUS_LABELS = {
@@ -21,9 +22,8 @@ function Badge({ children, className = "" }) {
   );
 }
 
-export default function IssueCard({ issue, onTriageClick, showToast }) {
+export default function IssueCard({ issue, onTriageClick, showToast, onDismiss }) {
   const [saving, setSaving] = useState(false);
-  const [bodyExpanded, setBodyExpanded] = useState(false);
 
   const handleCycleDifficulty = useCallback(
     async (e) => {
@@ -60,17 +60,18 @@ export default function IssueCard({ issue, onTriageClick, showToast }) {
       e.stopPropagation();
       try {
         await dismissIssue(issue.id);
-        showToast?.("Dismissed", "success");
+        onDismiss?.(issue);
       } catch {
         showToast?.("Failed to dismiss", "error");
       }
     },
-    [issue.id, showToast]
+    [issue.id, onDismiss, showToast]
   );
 
   const prStatus = issue.triage?.pr_status;
   const hasPR = !!issue.triage?.pr_url;
   const bodyLong = issue.body && issue.body.length > 200;
+  const [bodyExpanded, setBodyExpanded] = useState(false);
 
   return (
     <div
@@ -168,16 +169,21 @@ export default function IssueCard({ issue, onTriageClick, showToast }) {
             )}
           </div>
 
-          <span
-            className={`shrink-0 inline-flex items-center px-[10px] py-[4px] rounded-md text-[10px] font-semibold tracking-[0.02em] leading-none
-              ${issue.status === "complete" ? "bg-success/10 text-success" : ""}
-              ${issue.status === "error" ? "bg-error/10 text-error" : ""}
-              ${issue.status === "pending" || issue.status === "notified" ? "bg-warning/10 text-warning" : ""}
-              ${issue.status === "extracting" || issue.status === "triaging" ? "bg-primary/10 text-primary-hover" : ""}
-            `}
-          >
-            {STATUS_LABELS[issue.status] || issue.status}
-          </span>
+          <div className="shrink-0 flex flex-col items-end gap-[4px]">
+            <span
+              className={`inline-flex items-center px-[10px] py-[4px] rounded-md text-[10px] font-semibold tracking-[0.02em] leading-none
+                ${issue.status === "complete" ? "bg-success/10 text-success" : ""}
+                ${issue.status === "error" ? "bg-error/10 text-error" : ""}
+                ${issue.status === "pending" || issue.status === "notified" ? "bg-warning/10 text-warning" : ""}
+                ${issue.status === "extracting" || issue.status === "triaging" ? "bg-primary/10 text-primary-hover" : ""}
+              `}
+            >
+              {STATUS_LABELS[issue.status] || issue.status}
+            </span>
+            <span className="text-[10px] text-ink-tertiary">
+              #{issue.number} · {timeAgo(issue.created_at)}
+            </span>
+          </div>
         </div>
 
         {/* Actions */}
@@ -222,10 +228,6 @@ export default function IssueCard({ issue, onTriageClick, showToast }) {
           )}
 
           <div className="flex-1" />
-
-          <span className="text-[10px] text-ink-tertiary mr-1">
-            #{issue.number}
-          </span>
 
           <button
             onClick={handleDismiss}

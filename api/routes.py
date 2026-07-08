@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from config.settings import settings
+from db.rate_limit_store import read_rate_limit
 from db.store import (
     add_priority_repo,
     clear_all_data,
@@ -139,6 +140,11 @@ async def api_dismiss_issue(issue_id: int, body: FlagBody):
 async def api_health():
     stats = get_stats()
     return {"status": "ok", **stats}
+
+
+@router.get("/api/rate-limit")
+async def api_rate_limit():
+    return read_rate_limit()
 
 
 @router.get("/api/stats/history")

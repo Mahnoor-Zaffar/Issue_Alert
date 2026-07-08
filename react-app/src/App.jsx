@@ -31,29 +31,60 @@ const LABEL_OPTIONS = [
 
 const PAGE_SIZE = 30;
 
+function readFilters() {
+  const p = new URLSearchParams(location.search);
+  return {
+    filterLang: p.get("lang") || "",
+    filterStatus: p.get("status") || "",
+    filterDiff: p.get("diff") || "",
+    filterLabel: p.get("label") || "",
+    filterSaved: p.get("saved") === "1",
+    filterPriority: p.get("priority") === "1",
+  };
+}
+
+function writeFilters(filters) {
+  const p = new URLSearchParams();
+  if (filters.filterLang) p.set("lang", filters.filterLang);
+  if (filters.filterStatus) p.set("status", filters.filterStatus);
+  if (filters.filterDiff) p.set("diff", filters.filterDiff);
+  if (filters.filterLabel) p.set("label", filters.filterLabel);
+  if (filters.filterSaved) p.set("saved", "1");
+  if (filters.filterPriority) p.set("priority", "1");
+  const q = p.toString();
+  const url = q ? `?${q}` : location.pathname;
+  history.replaceState(null, "", url);
+}
+
 export default function App() {
+  const initial = readFilters();
   const [issues, setIssues] = useState([]);
   const [priorityIssues, setPriorityIssues] = useState([]);
   const [stats, setStats] = useState(null);
   const [statsHistory, setStatsHistory] = useState([]);
   const [connected, setConnected] = useState(false);
   const [panelIssue, setPanelIssue] = useState(null);
-  const [toast, setToast] = useState({ message: "", type: "info" });
+  const [toast, setToast] = useState({ message: "", type: "info", action: null });
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
-  const [filterLang, setFilterLang] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterDiff, setFilterDiff] = useState("");
-  const [filterLabel, setFilterLabel] = useState("");
-  const [filterSaved, setFilterSaved] = useState(false);
-  const [filterPriority, setFilterPriority] = useState(false);
+  const [filterLang, setFilterLang] = useState(initial.filterLang);
+  const [filterStatus, setFilterStatus] = useState(initial.filterStatus);
+  const [filterDiff, setFilterDiff] = useState(initial.filterDiff);
+  const [filterLabel, setFilterLabel] = useState(initial.filterLabel);
+  const [filterSaved, setFilterSaved] = useState(initial.filterSaved);
+  const [filterPriority, setFilterPriority] = useState(initial.filterPriority);
 
   const loadRef = useRef(0);
 
-  const showToast = useCallback((message, type = "info") => {
-    setToast({ message, type });
+  const showToast = useCallback((message, type = "info", action = null) => {
+    setToast({ message, type, action });
   }, []);
+
+  // Persist filters to URL
+  useEffect(() => {
+    writeFilters({ filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority });
+  }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority]);
 
   const loadIssues = useCallback(async (append = false) => {
     const id = ++loadRef.current;
@@ -153,6 +184,28 @@ export default function App() {
   const handleTriageClick = useCallback((issue) => {
     setPanelIssue(issue);
   }, []);
+
+  // Dismiss with undo
+  const [lastDismissed, setLastDismissed] = useState(null);
+  const handleDismiss = useCallback((issue) => {
+    setLastDismissed(issue);
+    showToast("Dismissed", "success", {
+      label: "Undo",
+      onClick: () => {
+        setLastDismissed(null);
+        fetch(`/api/issues/${issue.id}/dismiss`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: false }),
+        }).then(() => {
+          showToast("Undone", "success");
+          loadIssues();
+        }).catch(() => {
+          showToast("Undo failed", "error");
+        });
+      },
+    });
+  }, [showToast, loadIssues]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -257,7 +310,7 @@ export default function App() {
             </h2>
             <div className="flex flex-col gap-[10px]">
               {priorityIssues.map((issue) => (
-                <IssueCard key={issue.id} issue={issue} onTriageClick={handleTriageClick} showToast={showToast} />
+                <IssueCard key={issue.id} issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} />
               ))}
             </div>
           </div>
@@ -277,7 +330,7 @@ export default function App() {
             </div>
           ) : (
             issues.map((issue) => (
-              <IssueCard key={issue.id} issue={issue} onTriageClick={handleTriageClick} showToast={showToast} />
+              <IssueCard key={issue.id} issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} />
             ))
           )}
         </div>
@@ -296,7 +349,7 @@ export default function App() {
         <TriagePanel issue={panelIssue} onClose={() => setPanelIssue(null)} showToast={showToast} />
       )}
 
-      <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: "", type: "info" })} />
+      <Toast message={toast.message} type={toast.type} action={toast.action} onClose={() => setToast({ message: "", type: "info", action: null })} />
     </div>
   );
 }
