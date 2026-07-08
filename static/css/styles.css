@@ -303,7 +303,7 @@ body {
 .issue-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
 }
 
 .empty-state {
@@ -316,104 +316,113 @@ body {
 
 .issue-card {
   background: var(--surface-1);
-  border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
-  padding: 16px 20px;
-  transition: border-color var(--transition), background var(--transition);
+  padding: 14px 18px;
+  transition: background var(--transition);
   cursor: default;
+  position: relative;
 }
 
-.issue-card:hover {
-  background: var(--surface-2);
+.issue-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--hairline);
+  pointer-events: none;
+}
+
+.issue-card:hover::before {
   border-color: var(--hairline-strong);
 }
 
-.issue-card-error {
-  border-color: rgba(229, 72, 77, 0.3);
+.issue-card + .issue-card {
+  margin-top: 0;
 }
-.issue-card-error:hover {
-  border-color: rgba(229, 72, 77, 0.5);
+
+.issue-card-error::before {
+  border-color: rgba(229, 72, 77, 0.25);
+}
+.issue-card-error:hover::before {
+  border-color: rgba(229, 72, 77, 0.45);
 }
 
 .card-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: 10px;
+  margin-bottom: 6px;
 }
 
 .card-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  margin-bottom: 4px;
+  gap: 3px;
+  margin-bottom: 3px;
 }
 
 .repo-name {
-  font-size: 12px;
-  color: var(--ink-muted);
+  font-size: 11px;
+  color: var(--ink-subtle);
   font-weight: 500;
+  letter-spacing: 0.1px;
 }
 
 .badge {
   display: inline-flex;
   align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.badge-language { background: rgba(94, 106, 210, 0.12); color: var(--primary-hover); }
+.badge-label { background: rgba(130, 143, 255, 0.1); color: var(--primary-hover); }
+.badge-stars { background: rgba(245, 200, 66, 0.1); color: var(--warning); }
+.badge-score { background: rgba(39, 166, 68, 0.1); color: var(--success); }
+
+.badge-difficulty {
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.badge-difficulty.easy { background: rgba(39, 166, 68, 0.12); color: var(--success); }
+.badge-difficulty.medium { background: rgba(245, 200, 66, 0.12); color: var(--warning); }
+.badge-difficulty.hard { background: rgba(229, 72, 77, 0.12); color: var(--error); }
+
+.status-pill {
   padding: 2px 7px;
   border-radius: var(--radius-pill);
   font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  line-height: 1.3;
-}
-
-.badge-language { background: rgba(94, 106, 210, 0.15); color: var(--primary-hover); }
-.badge-label { background: rgba(130, 143, 255, 0.12); color: var(--primary-hover); }
-.badge-stars { background: rgba(245, 200, 66, 0.12); color: var(--warning); }
-.badge-score { background: rgba(39, 166, 68, 0.12); color: var(--success); }
-
-.badge-difficulty {
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 700;
-}
-.badge-difficulty.easy { background: rgba(39, 166, 68, 0.15); color: var(--success); }
-.badge-difficulty.medium { background: rgba(245, 200, 66, 0.15); color: var(--warning); }
-.badge-difficulty.hard { background: rgba(229, 72, 77, 0.15); color: var(--error); }
-
-.status-pill {
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
   white-space: nowrap;
   flex-shrink: 0;
   line-height: 1.3;
+  letter-spacing: 0.2px;
 }
 
-.status-pending, .status-notified { background: rgba(245, 200, 66, 0.12); color: var(--warning); }
-.status-extracting, .status-triaging { background: rgba(94, 106, 210, 0.12); color: var(--primary-hover); }
-.status-complete { background: rgba(39, 166, 68, 0.12); color: var(--success); }
-.status-error { background: rgba(229, 72, 77, 0.12); color: var(--error); }
+.status-pending, .status-notified { background: rgba(245, 200, 66, 0.1); color: var(--warning); }
+.status-extracting, .status-triaging { background: rgba(94, 106, 210, 0.1); color: var(--primary-hover); }
+.status-complete { background: rgba(39, 166, 68, 0.1); color: var(--success); }
+.status-error { background: rgba(229, 72, 77, 0.1); color: var(--error); }
 
 .issue-title {
   font-size: 14px;
   font-weight: 500;
-  letter-spacing: -0.2px;
-  margin-bottom: 2px;
-  line-height: 1.4;
+  letter-spacing: -0.15px;
+  line-height: 1.35;
 }
 .issue-title a { color: var(--ink); text-decoration: none; transition: color var(--transition); }
 .issue-title a:hover { color: var(--primary); }
 
 .issue-body-preview {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--ink-subtle);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -423,81 +432,77 @@ body {
 
 .card-actions {
   display: flex;
-  gap: 6px;
-  margin-top: 10px;
+  gap: 4px;
+  margin-top: 8px;
   align-items: center;
 }
 
 .btn-icon {
   background: transparent;
-  border: 1px solid var(--hairline);
+  border: none;
   color: var(--ink-tertiary);
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-md);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background var(--transition), border-color var(--transition), color var(--transition);
+  transition: background var(--transition), color var(--transition);
 }
 .btn-icon:hover {
-  background: var(--surface-2);
-  border-color: var(--hairline-strong);
-  color: var(--ink-muted);
+  background: rgba(229, 72, 77, 0.1);
+  color: var(--error);
 }
 
 .btn-view-triage {
   background: transparent;
-  border: 1px solid var(--hairline);
+  border: none;
   color: var(--primary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
-  padding: 5px 12px;
-  transition: background var(--transition), border-color var(--transition);
+  padding: 4px 10px;
+  transition: background var(--transition);
   font-family: inherit;
 }
 .btn-view-triage:hover {
   background: rgba(94, 106, 210, 0.1);
-  border-color: var(--primary);
 }
 
 .btn-save {
   background: transparent;
-  border: 1px solid var(--hairline);
+  border: none;
   color: var(--ink-tertiary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
-  padding: 5px 12px;
-  transition: background var(--transition), border-color var(--transition), color var(--transition);
+  padding: 4px 10px;
+  transition: background var(--transition), color var(--transition);
   font-family: inherit;
 }
 .btn-save:hover {
-  border-color: var(--warning);
   color: var(--warning);
   background: rgba(245, 200, 66, 0.08);
 }
 .btn-save.active {
-  background: rgba(245, 200, 66, 0.12);
-  border-color: var(--warning);
+  background: rgba(245, 200, 66, 0.1);
   color: var(--warning);
 }
 
 .btn-export {
   background: transparent;
-  border: 1px solid var(--hairline);
+  border: none;
   color: var(--ink-tertiary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
-  padding: 5px 10px;
-  transition: all var(--transition);
+  padding: 4px 8px;
+  transition: background var(--transition), color var(--transition);
   font-family: inherit;
 }
 .btn-export:hover {
@@ -506,13 +511,13 @@ body {
 }
 
 .error-box {
-  background: rgba(229, 72, 77, 0.08);
-  border: 1px solid rgba(229, 72, 77, 0.2);
+  background: rgba(229, 72, 77, 0.06);
+  border: 1px solid rgba(229, 72, 77, 0.15);
   border-radius: var(--radius-md);
   padding: 8px 12px;
   font-size: 12px;
   color: var(--error);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 /* ───── Slide-out Triage Panel ───── */
