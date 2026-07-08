@@ -1,5 +1,6 @@
 import logging
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -135,6 +136,39 @@ def matches_label_preference(
     return bool(preferred & issue_labels)
 
 
+# Unicode blocks that indicate non-English text
+_NON_ENGLISH_RANGES = [
+    (0x0600, 0x06FF),  # Arabic
+    (0x0400, 0x04FF),  # Cyrillic
+    (0x4E00, 0x9FFF),  # CJK Unified
+    (0x3040, 0x309F),  # Hiragana
+    (0x30A0, 0x30FF),  # Katakana
+    (0xAC00, 0xD7AF),  # Hangul
+    (0x0E00, 0x0E7F),  # Thai
+    (0x0900, 0x097F),  # Devanagari
+    (0x0590, 0x05FF),  # Hebrew
+    (0x1F600, 0x1F64F),  # Emoticons (not language, but often used non-English)
+]
+
+
+def is_mostly_english(text: str | None, threshold: float = 0.15) -> bool:
+    """Return False if > threshold fraction of chars are from non-English scripts."""
+    if not text:
+        return True
+    total = 0
+    non_english = 0
+    for ch in text:
+        cat = unicodedata.category(ch)
+        if cat.startswith("L") or cat.startswith("N") or cat in ("Po", "Pd", "Ps", "Pe", "Pi", "Pf"):
+            total += 1
+            cp = ord(ch)
+            if any(lo <= cp <= hi for lo, hi in _NON_ENGLISH_RANGES):
+                non_english += 1
+    if total == 0:
+        return True
+    return (non_english / total) < threshold
+
+
 class GitHubPoller:
     def __init__(self) -> None:
         self._rate_limiter = GitHubRateLimiter()
@@ -182,7 +216,8 @@ class GitHubPoller:
         normalized = []
         for item in pristine_items:
             issue = await self._normalize_issue(item)
-            normalized.append(issue)
+            if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):
+                normalized.append(issue)
 
         return normalized, total_count, None
 
@@ -198,8 +233,9 @@ class GitHubPoller:
             for item in items:
                 if passes_claim_verification(item, cutoff):
                     issue = await self._normalize_issue(item)
-                    issue["is_priority"] = True
-                    all_issues.append(issue)
+                    if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):
+                        issue["is_priority"] = True
+                        all_issues.append(issue)
         if all_issues:
             logger.info("Found %d priority issue(s)", len(all_issues))
         return all_issues
