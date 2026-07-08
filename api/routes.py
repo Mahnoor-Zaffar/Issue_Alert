@@ -64,6 +64,9 @@ class RepoBody(BaseModel):
 
 @router.get("/")
 async def serve_index():
+    react_index = STATIC_DIR / "react-dist" / "index.html"
+    if react_index.exists():
+        return FileResponse(react_index)
     return FileResponse(STATIC_DIR / "index.html")
 
 
