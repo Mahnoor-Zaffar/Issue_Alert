@@ -199,7 +199,7 @@ export default function App() {
               <span className="w-[6px] h-[6px] rounded-full bg-warning animate-pulse" />
               Priority Issues
             </h2>
-            <div className="flex flex-col gap-[6px]">
+            <div className="flex flex-col gap-[10px]">
               {priorityIssues.map((issue) => (
                 <IssueCard key={issue.id} issue={issue} onTriageClick={handleTriageClick} />
               ))}
@@ -212,7 +212,7 @@ export default function App() {
           General Feed
         </h2>
 
-        <div className="flex flex-col gap-[6px]">
+        <div className="flex flex-col gap-[10px]">
           {issues.length === 0 ? (
             <div className="text-center py-16 text-ink-subtle">
               <p className="text-[14px] mb-1">Waiting for issues...</p>

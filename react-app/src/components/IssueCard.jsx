@@ -14,7 +14,7 @@ const STATUS_LABELS = {
 function Badge({ children, className = "" }) {
   return (
     <span
-      className={`inline-flex items-center leading-none font-semibold px-[7px] py-[3px] rounded-md text-[10px] tracking-[0.02em] ${className}`}
+      className={`inline-flex items-center leading-none font-semibold px-[8px] py-[4px] rounded-md text-[10px] tracking-[0.02em] ${className}`}
     >
       {children}
     </span>
@@ -57,7 +57,7 @@ export default function IssueCard({ issue, onTriageClick }) {
 
   return (
     <div
-      className={`group relative rounded-xl px-[22px] py-[16px] cursor-default transition-colors duration-150
+      className={`group relative rounded-xl px-[28px] py-[20px] cursor-default transition-colors duration-150
         ${issue.status === "error" ? "bg-surface-1/80" : "bg-surface-1"}
       `}
     >
@@ -69,7 +69,7 @@ export default function IssueCard({ issue, onTriageClick }) {
 
       <div className="relative">
         {/* Meta row */}
-        <div className="flex items-center gap-[4px] mb-[8px] flex-wrap">
+        <div className="flex items-center gap-[6px] mb-[12px] flex-wrap">
           <span className="text-[11px] font-medium text-ink-subtle tracking-[0.01em]">
             {issue.repo_full_name}
           </span>
@@ -131,14 +131,14 @@ export default function IssueCard({ issue, onTriageClick }) {
             </h3>
 
             {issue.body && (
-              <p className="mt-[4px] text-[12.5px] text-ink-subtle leading-[1.55] line-clamp-2">
+              <p className="mt-[6px] text-[12.5px] text-ink-subtle leading-[1.55] line-clamp-2">
                 {issue.body}
               </p>
             )}
           </div>
 
           <span
-            className={`shrink-0 inline-flex items-center px-[8px] py-[3px] rounded-md text-[10px] font-semibold tracking-[0.02em] leading-none
+            className={`shrink-0 inline-flex items-center px-[10px] py-[4px] rounded-md text-[10px] font-semibold tracking-[0.02em] leading-none
               ${issue.status === "complete" ? "bg-success/10 text-success" : ""}
               ${issue.status === "error" ? "bg-error/10 text-error" : ""}
               ${issue.status === "pending" || issue.status === "notified" ? "bg-warning/10 text-warning" : ""}
@@ -150,7 +150,7 @@ export default function IssueCard({ issue, onTriageClick }) {
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-[2px] mt-[10px] opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+        <div className="flex items-center gap-[4px] mt-[14px] opacity-0 group-hover:opacity-100 transition-opacity duration-150">
           <button
             onClick={handleBookmark}
             disabled={saving}
