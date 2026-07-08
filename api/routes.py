@@ -37,6 +37,7 @@ from db.store import (
     save_pr_info,
     set_issue_difficulty,
     set_issue_flag,
+    update_issue_status,
     update_pr_status,
 )
 
@@ -178,6 +179,19 @@ async def api_set_difficulty(issue_id: int, body: DifficultyBody):
     if not set_issue_difficulty(issue_id, body.difficulty):
         raise HTTPException(status_code=400, detail="Invalid difficulty (use: easy, medium, hard)")
     return get_issue(issue_id)
+
+
+@router.post("/api/issues/{issue_id}/re-triage")
+async def api_re_triage(issue_id: int):
+    issue = get_issue(issue_id)
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    if not issue.get("triage"):
+        raise HTTPException(status_code=400, detail="Issue has no triage report to replace")
+    update_issue_status(issue_id, "pending")
+    enqueue_triage(issue_id)
+    request_poll()
+    return {"status": "queued", "message": "Re-triage queued — check back in a moment"}
 
 
 @router.get("/api/pr-details")

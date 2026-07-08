@@ -189,18 +189,6 @@ async def process_webhooks(poller: GitHubPoller, triage_engine: TriageEngine) ->
 
 async def process_triage_queue(poller: GitHubPoller, triage_engine: TriageEngine) -> int:
     processed = 0
-    for entry in fetch_pending_webhooks():
-        issue_data = poller.issue_from_webhook(entry["payload"])
-        mark_webhook_processed(entry["id"])
-        if issue_data and await process_issue(issue_data, triage_engine):
-            processed += 1
-    if processed:
-        logger.info("Processed %d webhook issue(s)", processed)
-    return processed
-
-
-async def process_triage_queue(poller: GitHubPoller, triage_engine: TriageEngine) -> int:
-    processed = 0
     for issue_id in get_pending_triage_requests():
         issue = get_issue(issue_id)
         if not issue or issue["status"] == "complete":

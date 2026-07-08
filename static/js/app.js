@@ -226,6 +226,10 @@ function renderPanelBody(issue) {
       </div>`
     : "";
 
+  const retriageBtn = `<div style="margin-top:16px;text-align:right">
+    <button class="btn" style="font-size:0.8rem" onclick="reTriage(${issue.id})" id="btn-retriage-${issue.id}">🔄 Re-triage</button>
+  </div>`;
+
   const prStatus = issue.triage && issue.triage.pr_status || issue.pr_status;
   const prUrl = issue.triage && issue.triage.pr_url || issue.pr_url;
   let prSection = "";
@@ -243,7 +247,7 @@ function renderPanelBody(issue) {
     prSection = `<div style="margin-top:16px"><button class="btn btn-primary" onclick="openPR(${issue.id})" id="btn-open-pr-${issue.id}">🤖 Open Draft PR</button></div>`;
   }
 
-  return html + commentSection + prSection;
+  return html + commentSection + retriageBtn + prSection;
 }
 
 function copyClaimComment(id) {
@@ -615,6 +619,24 @@ async function openPR(id) {
   }
 }
 
+async function reTriage(id) {
+  const btn = document.getElementById(`btn-retriage-${id}`);
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Re-triaging…"; }
+  try {
+    const res = await fetch(apiUrl(`/api/issues/${id}/re-triage`), { method: "POST" });
+    const data = await res.json();
+    if (res.ok) {
+      if (btn) btn.textContent = "✅ Queued";
+    } else {
+      alert(data.detail || "Failed to queue re-triage");
+      if (btn) { btn.disabled = false; btn.textContent = "🔄 Re-triage"; }
+    }
+  } catch {
+    alert("Failed to queue re-triage");
+    if (btn) { btn.disabled = false; btn.textContent = "🔄 Re-triage"; }
+  }
+}
+
 async function loadPRDetails(id) {
   const container = document.getElementById(`pr-details-${id}`);
   if (!container) return;
@@ -741,6 +763,7 @@ window.toggleBookmark = toggleBookmark;
 window.dismissIssue = dismissIssue;
 window.exportTriage = exportTriage;
 window.openPR = openPR;
+window.reTriage = reTriage;
 window.loadPRDetails = loadPRDetails;
 window.cycleDifficulty = cycleDifficulty;
 window.copyClaimComment = copyClaimComment;
