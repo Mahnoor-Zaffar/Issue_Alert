@@ -18,36 +18,28 @@
         <span>Issue Triage</span>
       </div>
 
-      <div class="stats">
-        <div class="stat-card">
+      <div class="stats-grid">
+        <div class="stat-item">
           <span class="stat-value" id="stat-total">0</span>
-          <span class="stat-label">Total Issues</span>
+          <span class="stat-label">Total</span>
         </div>
-        <div class="stat-card">
+        <div class="stat-item">
           <span class="stat-value" id="stat-complete">0</span>
           <span class="stat-label">Triaged</span>
         </div>
-        <div class="stat-card">
+        <div class="stat-item">
           <span class="stat-value" id="stat-pending">0</span>
           <span class="stat-label">In Progress</span>
+        </div>
+        <div class="stat-item" id="history-card" style="display:none">
+          <span class="stat-label">14-day activity</span>
+          <svg id="sparkline" width="100%" height="24" viewBox="0 0 200 24" preserveAspectRatio="none" style="margin-top:4px"></svg>
         </div>
       </div>
 
       <div class="poll-status">
         <span class="poll-label">Last poll</span>
         <span class="poll-value" id="last-poll-text">Waiting...</span>
-      </div>
-
-      <div class="stat-card" id="history-card" style="display:none">
-        <span class="stat-label">Triaged (14d)</span>
-        <div id="sparkline-container">
-          <svg id="sparkline" width="100%" height="32" viewBox="0 0 220 32" preserveAspectRatio="none"></svg>
-        </div>
-      </div>
-
-      <div class="stat-card" id="history-card" style="display:none">
-        <span class="stat-label">Triaged (14d)</span>
-        <svg id="sparkline" width="100%" height="28" viewBox="0 0 200 28" preserveAspectRatio="none" style="margin-top:4px"></svg>
       </div>
 
       <div class="sidebar-actions">
