@@ -141,7 +141,7 @@ function buildCard(issue) {
     : "";
 
   const priorityBadge = issue.is_priority
-    ? `<span class="badge badge-difficulty" style="background:rgba(245,200,66,0.15);color:var(--accent-yellow)">🔔 Priority</span>`
+    ? `<span class="badge badge-difficulty" style="background:rgba(245,200,66,0.15);color:var(--warning)">🔔 Priority</span>`
     : "";
 
   const prStatus = issue.triage && issue.triage.pr_status || issue.pr_status;
@@ -156,7 +156,7 @@ function buildCard(issue) {
   const triageBtn = issue.status === "complete" && issue.triage
     ? `<button class="btn-view-triage" onclick="event.stopPropagation(); openTriagePanel(${issue.id})">View Report</button>`
     : issue.status === "error"
-      ? `<span class="badge badge-difficulty hard" style="background:rgba(255,94,94,0.1);color:var(--accent-red)">Error</span>`
+      ? `<span class="badge badge-difficulty hard" style="background:rgba(255,94,94,0.1);color:var(--error)">Error</span>`
       : `<span class="triage-pending-msg">Triaging…</span>`;
 
   const cardClass = issue.status === "error" ? "issue-card issue-card-error" : "issue-card";
@@ -236,7 +236,7 @@ function renderPanelBody(issue) {
   if (prUrl) {
     const labels = { open: "🔵 Open", pending: "⏳ CI Running…", success: "✅ CI Passing", failure: "❌ CI Failing", merged: "✅ Merged", closed: "🔒 Closed", error: "⚠️ CI Error" };
     prSection = `<div style="margin-top:16px" id="pr-section-${issue.id}">
-      <div style="padding:12px;border:1px solid var(--border);border-radius:8px">
+      <div style="padding:12px;border:1px solid var(--hairline);border-radius:8px">
         <strong>PR: ${labels[prStatus] || prStatus}</strong><br>
         <a href="${prUrl}" target="_blank" rel="noopener">${prUrl}</a>
         <br><button class="btn btn-primary" style="margin-top:8px;font-size:0.8rem" onclick="loadPRDetails(${issue.id})">Show Details</button>
@@ -524,9 +524,9 @@ async function loadPriorityRepos() {
     list.innerHTML = (data.repos || []).map((r) =>
       `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 4px 2px 0;padding:2px 8px;background:rgba(245,200,66,0.1);border-radius:4px;font-size:0.78rem">
         ${r.full_name}
-        <button onclick="removePriorityRepo(${r.id})" style="background:none;border:none;color:var(--accent-red);cursor:pointer;font-size:0.85rem;padding:0;line-height:1">✕</button>
+        <button onclick="removePriorityRepo(${r.id})" style="background:none;border:none;color:var(--error);cursor:pointer;font-size:0.85rem;padding:0;line-height:1">✕</button>
       </span>`
-    ).join("") || "<span style='color:var(--text-muted)'>No repos added yet</span>";
+    ).join("") || "<span style='color:var(--ink-tertiary)'>No repos added yet</span>";
   } catch { /* ignore */ }
 }
 
@@ -654,17 +654,17 @@ async function loadPRDetails(id) {
     const data = await res.json();
 
     const stateBadge = data.merged ? "✅ Merged" : data.draft ? "📝 Draft" : data.state === "open" ? "🔵 Open" : "🔒 Closed";
-    let html = `<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+    let html = `<div style="margin-top:8px;border-top:1px solid var(--hairline);padding-top:8px">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <strong>${escapeHtml(data.title)}</strong>
         <span>${stateBadge}</span>
       </div>
-      <div style="font-size:0.84rem;margin-top:6px;color:var(--text-secondary)">
+      <div style="font-size:0.84rem;margin-top:6px;color:var(--ink-subtle)">
         Created ${new Date(data.created_at).toLocaleDateString()}
       </div>`;
 
     if (data.body) {
-      html += `<div style="margin-top:8px;font-size:0.84rem;color:var(--text-secondary);max-height:200px;overflow-y:auto">${renderMarkdown(data.body)}</div>`;
+      html += `<div style="margin-top:8px;font-size:0.84rem;color:var(--ink-subtle);max-height:200px;overflow-y:auto">${renderMarkdown(data.body)}</div>`;
     }
 
     if (data.files && data.files.length) {
@@ -719,13 +719,13 @@ function renderSparkline(history) {
   svg.innerHTML = `
     <defs>
       <linearGradient id="spark-gradient" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="rgba(91,192,235,0.3)" />
-        <stop offset="100%" stop-color="rgba(91,192,235,0)" />
+        <stop offset="0%" stop-color="rgba(94,106,210,0.3)" />
+        <stop offset="100%" stop-color="rgba(94,106,210,0)" />
       </linearGradient>
     </defs>
     <polyline fill="url(#spark-gradient)" stroke="none"
       points="0,${h} ${points} ${w},${h}" />
-    <polyline fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+    <polyline fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
       points="${points}" />
   `;
 }
