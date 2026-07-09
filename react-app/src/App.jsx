@@ -197,6 +197,9 @@ export default function App() {
           next[idx] = updated;
           return next;
         }
+        if (isNew && !updated.is_priority) {
+          return [updated, ...prev];
+        }
         return prev;
       });
       setPriorityIssues((prev) => {
@@ -205,6 +208,9 @@ export default function App() {
           const next = [...prev];
           next[idx] = updated;
           return next;
+        }
+        if (isNew && updated.is_priority) {
+          return [updated, ...prev];
         }
         return prev;
       });
