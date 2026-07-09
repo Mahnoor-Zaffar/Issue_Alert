@@ -12,3 +12,5 @@ data/
 *.db-shm
 .DS_Store
 docs/
+.daemon.pid
+.api.pid
