@@ -1,61 +1,65 @@
 # GitHub Issue Triage
 
-A local-first system for discovering open-source contribution opportunities, enriching them with repository context, and producing kid-friendly AI triage reports — delivered through a real-time glass-morphism web dashboard and macOS desktop notifications.
+A local-first system for discovering unclaimed open-source issues from 1000+ star repos, enriching them with repository context, and producing AI triage reports — delivered through a real-time React+Tailwind dashboard.
 
 [![Deploy GitHub Pages](https://github.com/Mahnoor-Zaffar/Issue_Alert/actions/workflows/pages.yml/badge.svg)](https://github.com/Mahnoor-Zaffar/Issue_Alert/actions/workflows/pages.yml)
-
-**Live UI preview:** [mahnoor-zaffar.github.io/Issue_Alert](https://mahnoor-zaffar.github.io/Issue_Alert/) *(static frontend only)*  
-**Full experience:** run locally at `http://127.0.0.1:8000`
 
 ---
 
 ## Overview
 
-GitHub Issue Triage runs as two cooperating processes on your machine:
+Two cooperating processes run on your machine:
 
 | Process | Role |
 |---------|------|
-| **Daemon** | Polls GitHub, deduplicates issues, extracts repo context via Contents API, calls LLM for triage, persists results |
-| **API + Dashboard** | Serves the modern glass-morphism UI, REST endpoints, and SSE live feed |
-
-Both share a single SQLite database (WAL mode), so either process can restart independently without losing state.
+| **Daemon** | Polls GitHub (Search API + priority repos), deduplicates, extracts repo context via shallow clone, calls LLM for kid-friendly triage, persists to SQLite |
+| **API + Dashboard** | FastAPI backend serving a React 19 + Tailwind CSS v4 SPA with SSE live feed, REST endpoints, sidebar panels, and keyboard shortcuts |
 
 ```
 ┌─────────────────┐     poll / triage      ┌──────────────────┐
-│  daemon/        │ ─────────────────────► │  data/triage.db  │
-│  (background)   │                        │  (SQLite WAL)    │
+│  daemon/         │ ─────────────────────► │  data/triage.db  │
+│  (background)    │                        │  (SQLite WAL)    │
 └─────────────────┘                        └────────┬─────────┘
-                                                      │ read
-                                                      ▼
+                                                     │ read
+                                                     ▼
 ┌─────────────────┐     SSE + REST           ┌──────────────────┐
-│  Browser        │ ◄─────────────────────── │  api/ + static/  │
-│  Dashboard      │                          │  (FastAPI)       │
+│  Browser         │ ◄─────────────────────── │  api/ + static/  │
+│  Dashboard       │                          │  (FastAPI)       │
 └─────────────────┘                          └──────────────────┘
 ```
 
 ### Pipeline (per issue)
 
-1. **Discover** — GitHub Search API (`good first issue`, `help wanted`) + priority repos
-2. **Extract** — GitHub Contents API fetches repo tree, reads 3 relevant source files (no git clone)
-3. **Score** — multi-factor scoring: repo stars (capped), comments count, body length tiers
-4. **Triage** — LLM generates kid-friendly report: emoji sections, bullet points, code snippets, difficulty badge (🟢/🟡/🔴), one-line fix
-5. **Notify** — macOS desktop notification via `osascript` *(for priority repos only)*
-6. **Display** — dashboard updates live over Server-Sent Events
+1. **Discover** — GitHub Search API (`good first issue`, `help wanted`) + priority repos, filtered by language, labels, min stars
+2. **Verify** — Skip if already assigned, has comments, or has an open PR (claim verification)
+3. **Extract** — Shallow-clone the repo, read file tree + relevant source files
+4. **Triage** — LLM generates kid-friendly report: architecture context, issue breakdown, action plan, difficulty badge (🟢/🟡/🔴)
+5. **Notify** — Desktop notification via `plyer` (for priority repos)
+6. **Display** — Dashboard updates live over Server-Sent Events
 
 ---
 
 ## Features
 
-- **Priority repos** — watch specific repos with desktop notifications; shown first in a dedicated feed section
-- **Configurable search** — labels, languages, minimum repo stars, progressive polling
+- **Priority repos** — watch specific repos with desktop notifications; shown in a dedicated feed section
+- **Configurable search** — languages, labels, minimum stars, show/hide dismissed (all adjustable from the dashboard)
 - **LLM-agnostic** — works with OpenAI, OpenRouter, or any OpenAI-compatible API
-- **Kid-friendly triage** — each issue analyzed as a friendly coding tutor with real-life analogies
-- **Glass-morphism UI** — slide-out triage panel, dark theme, difficulty badges, bookmark/save
-- **Bookmark, dismiss, and export** triage reports as Markdown
-- **Manual Poll Now** trigger from the dashboard
-- **Rate-limit-aware** GitHub client with exponential backoff
-- **Graceful degradation** when LLM calls or Content API requests fail
-- **Optional GitHub webhook ingestion**
+- **Kid-friendly triage** — architecture context, issue breakdown, step-by-step action plan with code snippets
+- **Linear-inspired UI** — dark theme, React 19 + Tailwind CSS v4, Inter font, custom design tokens
+- **SSE live feed** — new issues appear in real time without page refresh
+- **Bookmark, dismiss (with undo), view reports** from the issue feed
+- **Auto-create draft PRs** for "easy" issues (search-and-replace patches from triage report)
+- **Difficulty cycling** — mark issues easy/medium/hard to track your skill level
+- **Re-triage** — re-run LLM analysis with optional feedback message
+- **Daemon log viewer** — browse the daemon log right from the sidebar
+- **Keyboard shortcuts** — `p` = poll now, `r` = refresh, `Esc` = close panel
+- **Rate-limit-aware** GitHub client with exponential backoff + dashboard indicator
+- **Poll Now** trigger from the dashboard sidebar
+- **Priority notification chime** — Web Audio API tone for priority repo discoveries
+- **Filter toolbar** — language, status, difficulty, label, saved, priority; sort by newest/oldest/stars/repo name
+- **Search box** — frontend filter by title, body, or repo name
+- **URL-persisted filters** — shareable filter state via query params
+- **macOS desktop notifications** for priority repo issues
 
 ---
 
@@ -64,12 +68,12 @@ Both share a single SQLite database (WAL mode), so either process can restart in
 | Layer | Technology |
 |-------|------------|
 | Backend | Python 3.11+, FastAPI, uvicorn |
-| Persistence | SQLite (WAL) |
-| GitHub | Search API, Contents API |
-| AI | OpenRouter / OpenAI (`openai/gpt-4o-mini` by default) |
-| Frontend | Vanilla HTML, CSS, JavaScript, [anime.js](https://animejs.com/) |
+| Persistence | SQLite (WAL mode) |
+| GitHub | Search API, Contents API, shallow git clone |
+| AI | OpenRouter / OpenAI (`gpt-4o-mini` default) |
+| Frontend | React 19, Vite 8, Tailwind CSS v4 |
 | Real-time | Server-Sent Events (SSE) |
-| Notifications | macOS `osascript` |
+| Notifications | `plyer` (cross-platform desktop) |
 | CI / Pages | GitHub Actions |
 
 ---
@@ -77,8 +81,9 @@ Both share a single SQLite database (WAL mode), so either process can restart in
 ## Prerequisites
 
 - **Python 3.11+** with `venv` support
-- **GitHub Personal Access Token** with `public_repo` (or equivalent read access to public repos)
-- **LLM API key** — [OpenRouter](https://openrouter.ai/) recommended, or any OpenAI-compatible provider
+- **Node.js 20+** + npm (for building the frontend)
+- **GitHub Personal Access Token** with `public_repo` (or equivalent read access)
+- **LLM API key** — [OpenRouter](https://openrouter.ai/) recommended
 
 ---
 
@@ -89,37 +94,44 @@ git clone https://github.com/Mahnoor-Zaffar/Issue_Alert.git
 cd Issue_Alert
 
 python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 
 pip install -r requirements.txt
-cp .env.example .env               # add GITHUB_TOKEN and LLM_API_KEY
+cp .env.example .env        # add GITHUB_TOKEN and LLM_API_KEY
+
+cd react-app
+npm install
+npm run build               # builds to ../static/react-dist/
+cd ..
 ```
 
 ### Run locally
 
-**Option A — helper script**
-
 ```bash
-chmod +x run.sh
-./run.sh
+chmod +x start.sh
+./start.sh
 ```
 
-**Option B — two terminals** *(recommended for development)*
+Open **http://localhost:8000**
+
+Or run in two terminals for development:
 
 ```bash
 # Terminal 1 — daemon
 source .venv/bin/activate
 python -m daemon.main
 
-# Terminal 2 — dashboard
+# Terminal 2 — API server
 source .venv/bin/activate
 uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
-Open **http://127.0.0.1:8000**
+For frontend development, start the Vite dev server from `react-app/`:
 
-> **macOS note:** use `python3` or activate `.venv` before running `python`.  
-> A bare `python` command often fails with `command not found`.
+```bash
+cd react-app
+npm run dev    # proxies /api to localhost:8000
+```
 
 ---
 
@@ -131,17 +143,17 @@ Copy `.env.example` to `.env` and fill in required values:
 |----------|----------|---------|-------------|
 | `GITHUB_TOKEN` | Yes | — | GitHub PAT for Search + Contents API |
 | `LLM_API_KEY` | Yes | — | LLM API key (OpenRouter or OpenAI) |
-| `LLM_MODEL` | No | `openai/gpt-4o-mini` | Model used for triage |
+| `LLM_MODEL` | No | `gpt-4o-mini` | Model used for triage |
 | `LLM_BASE_URL` | No | `https://openrouter.ai/api/v1` | LLM API base URL |
 | `POLL_INTERVAL_SECONDS` | No | `60` | Seconds between poll cycles |
-| `SEARCH_LOOKBACK_MINUTES` | No | `60` | How far back to search each poll (progressive) |
+| `SEARCH_LOOKBACK_MINUTES` | No | `60` | How far back to search each poll |
 | `ISSUE_DISCOVERY_WINDOW_MINUTES` | No | `10080` | Initial full scan window (7 days) |
-| `MAX_ISSUE_COMMENTS` | No | `2` | Max comments allowed (`0` = untouched only) |
-| `MIN_REPO_STARS` | No | `0` | Minimum stars in search query |
+| `MAX_ISSUE_COMMENTS` | No | `5` | Max comments allowed (`0` = untouched only) |
+| `MIN_REPO_STARS` | No | `1000` | Minimum stars for repos in search |
 | `DATABASE_PATH` | No | `./data/triage.db` | SQLite file location |
 | `API_HOST` / `API_PORT` | No | `127.0.0.1` / `8000` | Dashboard bind address |
 
-Search preferences (labels, languages, min stars) can also be changed from the dashboard **Preferences** panel without editing code.
+Search preferences (languages, labels, min stars, show dismissed) can also be changed from the dashboard **Preferences** panel.
 
 ---
 
@@ -149,18 +161,45 @@ Search preferences (labels, languages, min stars) can also be changed from the d
 
 ```
 Issue_Alert/
-├── daemon/           # Background poller, Contents API extraction, AI triage
-├── api/              # FastAPI app, REST + SSE routes
-├── db/               # Schema, migrations, SQLite store
-├── static/           # Glass-morphism dashboard (served locally by FastAPI)
-├── docs/             # GitHub Pages build output (generated)
+├── daemon/                # Background poller, context extraction, AI triage
+│   ├── main.py            # Daemon entry point + main loop
+│   ├── poller.py          # GitHub Search API + issue fetching
+│   ├── triage.py          # LLM-based triage engine
+│   ├── context_extractor.py  # Shallow clone + file tree extraction
+│   ├── rate_limiter.py    # GitHub API rate-limit tracking
+│   └── notifier.py        # Desktop notifications (plyer)
+├── api/                   # FastAPI backend
+│   ├── main.py            # App creation, CORS, static mounts, lifespan
+│   └── routes.py          # All REST + SSE endpoints
+├── db/                    # Database schema and store
+├── config/
+│   └── settings.py        # Pydantic settings (loaded from .env)
+├── react-app/             # React 19 + Vite + Tailwind frontend
+│   └── src/
+│       ├── App.jsx        # Orchestrator with SSE, filters, search, sort, pagination
+│       ├── api.js         # API client wrappers
+│       ├── useSSE.js      # SSE hook with exponential reconnect
+│       ├── utils.js       # Time-ago helper
+│       └── components/
+│           ├── Sidebar.jsx      # Stats, sparkline, rate limit, poll, preferences, logs
+│           ├── IssueCard.jsx    # Issue card with badges, actions, hover menu
+│           ├── TriagePanel.jsx  # Slide-out triage report panel
+│           └── Toast.jsx        # Auto-dismissing toast notifications
+├── static/                # Served static assets
+│   └── react-dist/        # Production frontend build
+├── data/                  # Runtime data (gitignored except .gitkeep)
+│   ├── triage.db          # SQLite database
+│   ├── rate_limit.json    # GitHub API rate-limit state
+│   └── daemon.log         # Rotating daemon log
+├── docs/                  # GitHub Pages build output
 ├── scripts/
 │   ├── build_pages.sh
 │   └── reset_db.py
-├── config/settings.py
-├── run.sh
-├── docker-compose.yml
-└── requirements.txt
+├── start.sh               # Launch daemon + API
+├── stop.sh                # Stop daemon + API
+├── status.sh              # Check running status
+├── run.sh                 # Legacy run script
+└── docker-compose.yml     # Docker deployment
 ```
 
 ---
@@ -169,17 +208,25 @@ Issue_Alert/
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/issues` | GET | List issues (`language`, `status`, `label`, `bookmarked_only`, `is_priority`) |
-| `/api/issues/priority` | GET | Only priority-tagged issues |
+| `/api/issues` | GET | List issues (filter by language, status, label, difficulty, bookmarked, priority) |
 | `/api/issues/{id}` | GET | Single issue with triage report |
 | `/api/issues/{id}/bookmark` | POST | Toggle bookmark |
 | `/api/issues/{id}/dismiss` | POST | Dismiss / restore issue |
+| `/api/issues/{id}/view` | POST | Mark as viewed (removes from feed) |
+| `/api/issues/{id}/difficulty` | POST | Set difficulty (easy/medium/hard) |
+| `/api/issues/{id}/re-triage` | POST | Re-run LLM triage (optional feedback message) |
+| `/api/issues/{id}/open-pr` | POST | Auto-create draft PR from triage (easy issues only) |
 | `/api/priority-repos` | GET / POST | List / add watched repos |
 | `/api/priority-repos/{id}` | DELETE | Remove a watched repo |
+| `/api/preferences` | GET / PUT | Search preferences (languages, labels, min_stars, show_dismissed) |
 | `/api/trigger-poll` | POST | Request immediate daemon poll |
-| `/api/preferences` | GET / PUT | Search preferences |
+| `/api/rate-limit` | GET | Current GitHub API rate-limit state |
+| `/api/daemon-log` | GET | Last N lines of daemon log |
+| `/api/stats/history` | GET | Daily stats history |
+| `/api/pr-details` | GET | Fetch PR details from GitHub (files, checks, status) |
 | `/api/health` | GET | Service health and poll statistics |
-| `/api/events` | GET | SSE stream for live updates |
+| `/api/events` | GET | SSE stream for live issue updates |
+| `/api/admin/clear-data` | POST | Clear all database data |
 | `/api/webhooks/github` | POST | Optional webhook receiver |
 
 ---
@@ -188,8 +235,8 @@ Issue_Alert/
 
 Add repos to the **Priority Repos** panel in the sidebar to:
 - Watch specific repos that matter most to you
-- Get **macOS desktop notifications** when new issues are found
-- See them displayed in a separate **🔔 Priority Issues** section at the top of the feed
+- Get desktop notifications when new issues are found
+- See them in a separate priority section at the top of the feed
 - Issues from priority repos are tagged and filterable
 
 ---
@@ -197,13 +244,11 @@ Add repos to the **Priority Repos** panel in the sidebar to:
 ## Triage Reports
 
 Each triaged issue includes a kid-friendly analysis with:
-
-- **🧩 What This Part of the Code Does** — architecture context with real-life analogies
-- **🐛 What's Wrong** — the bug or feature explained in plain language
-- **📁 Files You'll Need to Edit** — exact files with line references
-- **📝 Step-by-Step Plan** — code snippets with ❌ wrong / ✅ correct examples
-- **💡 One-Line Fix** — a concise TL;DR of the fix
+- **Architecture Context** — what this part of the code does with real-life analogies
+- **Issue Breakdown** — the bug or feature explained in plain language
+- **Action Plan** — step-by-step with files, line references, and code snippets
 - **Difficulty badge** — 🟢 Easy / 🟡 Medium / 🔴 Hard
+- **Claim comment** — pre-written GitHub comment to express interest (copy from the panel)
 
 ---
 
@@ -211,12 +256,11 @@ Each triaged issue includes a kid-friendly analysis with:
 
 The dashboard UI is published on push to `main` via GitHub Actions.
 
-**One-time setup**
-
+**One-time setup:**
 1. Go to **Settings → Pages → Build and deployment**
-2. Set **Source** to **GitHub Actions** *(not "Deploy from a branch")*
+2. Set **Source** to **GitHub Actions**
 
-The workflow builds `docs/` from `static/` and deploys with `.nojekyll`.  
+The workflow builds `docs/` from `static/` and deploys with `.nojekyll`.
 GitHub Pages serves the **frontend only** — the daemon and API must run locally for live data.
 
 ---
@@ -232,11 +276,34 @@ python scripts/reset_db.py
 
 Then restart the daemon or click **Poll Now** on the dashboard.
 
-### Rebuild Pages artifact locally
+### Stop the services
 
 ```bash
-./scripts/build_pages.sh
+./stop.sh
 ```
+
+### Check status
+
+```bash
+./status.sh
+```
+
+### Rebuild frontend
+
+```bash
+cd react-app
+npm run build
+```
+
+---
+
+## Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `p` | Poll now |
+| `r` | Refresh feed |
+| `Esc` | Close triage panel |
 
 ---
 
@@ -244,25 +311,13 @@ Then restart the daemon or click **Poll Now** on the dashboard.
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `command not found: python` | venv not activated | `source .venv/bin/activate` or use `.venv/bin/python` |
-| `No module named 'sse_starlette'` | Global Python used instead of venv | Activate `.venv` before running uvicorn |
-| `address already in use :8000` | Old server still running | `pkill -f "uvicorn api.main"` then restart |
-| `0 fetched, 0 new` in logs | Overly restrictive search query | Lower min stars in Preferences; defaults use `help wanted` + `good first issue` |
+| `command not found: python` | venv not activated | `source .venv/bin/activate` |
+| `address already in use :8000` | Old server still running | `./stop.sh` then restart |
+| `0 fetched, 0 new` in logs | Overly restrictive search query | Lower min stars in Preferences |
 | Triage status `error` | Invalid or expired LLM API key | Verify `LLM_API_KEY` in `.env` |
-| No desktop notifications | Not on macOS or `osascript` unavailable | Non-fatal; issues still process normally |
-| Pages deploy fails | Competing deploys or branch source still enabled | In **Settings → Pages**, set Source to **GitHub Actions** only (disable branch deploy). Re-run the workflow if needed. |
-
----
-
-## Development
-
-```bash
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# Run with shorter poll interval while testing
-POLL_INTERVAL_SECONDS=60 python -m daemon.main
-```
+| No desktop notifications | `plyer` backend unavailable | Non-fatal; issues still process |
+| React app shows blank page | Frontend not built | `cd react-app && npm run build` |
+| Pages deploy fails | Branch source still enabled | Set **Source** to **GitHub Actions** only |
 
 ---
 
