@@ -334,12 +334,9 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
     await check_pr_checks()
 
 
-async def retry_errored_issues() -> None:
-    errored = get_errored_issues_for_retry()
-    if not errored:
-        return
-    for issue_row in errored:
-        issue_id = issue_row["id"]
+async def _retry_single_issue(issue_row: dict[str, Any], sem: asyncio.Semaphore) -> None:
+    issue_id = issue_row["id"]
+    async with sem:
         logger.info("Retrying triage for issue #%d (attempt %d)", issue_id, issue_row.get("retry_count", 0) + 1)
         increment_retry_count(issue_id)
         issue_data = {
@@ -356,7 +353,7 @@ async def retry_errored_issues() -> None:
             import json
             issue_data["labels"] = json.loads(issue_data["labels"])
         if issue_data["github_id"] is None:
-            continue
+            return
         from daemon.triage import TriageEngine
         triage_engine = TriageEngine()
         try:
@@ -390,6 +387,15 @@ async def retry_errored_issues() -> None:
         except Exception as exc:
             logger.exception("Retry triage failed for issue #%d", issue_id)
             update_issue_status(issue_id, "error", str(exc))
+
+
+async def retry_errored_issues() -> None:
+    errored = get_errored_issues_for_retry()
+    if not errored:
+        return
+    sem = asyncio.Semaphore(3)
+    tasks = [_retry_single_issue(row, sem) for row in errored]
+    await asyncio.gather(*tasks)
 
 
 async def check_pr_checks() -> None:

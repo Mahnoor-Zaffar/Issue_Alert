@@ -100,7 +100,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         languages = json.loads(row["languages"] or "[]")
         needs_update = False
 
-        new_labels = ["bug", "feature", "enhancement", "help wanted", "good first issue", "task", "improvement", "fix", "bugfix", "feature request", "todo"]
+        new_labels = ["good first issue", "help wanted", "bug", "enhancement", "feature", "fix", "improvement"]
         old_default_labels = {"good first issue", "help wanted"}
         prev_default_labels = {"bug", "feature", "enhancement", "help wanted"}
         labels_set = set(labels)
@@ -112,7 +112,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
             needs_update = True
 
         old_default_languages = {"javascript", "python", "go", "rust"}
-        new_default_languages = {"javascript", "python"}
+        new_default_languages = {"javascript", "typescript", "python"}
         if set(languages) == old_default_languages:
             languages = list(new_default_languages)
             needs_update = True
@@ -257,7 +257,7 @@ def mark_issue_viewed(issue_id: int) -> bool:
 
 
 def purge_stale_issues() -> int:
-    cutoff = _freshness_cutoff_iso()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
     with get_connection() as conn:
         cursor = conn.execute(
             """
@@ -635,8 +635,8 @@ def save_preferences(prefs: dict[str, Any]) -> dict[str, Any]:
 
 def _default_preferences() -> dict[str, Any]:
     return {
-        "languages": ["javascript", "python"],
-        "labels": ["bug", "feature", "enhancement", "help wanted", "good first issue", "task", "improvement", "fix", "bugfix", "feature request", "todo"],
+        "languages": ["javascript", "typescript", "python"],
+        "labels": ["good first issue", "help wanted", "bug", "enhancement", "feature", "fix", "improvement"],
         "min_stars": 500,
         "show_dismissed": False,
     }
@@ -818,7 +818,7 @@ def get_errored_issues_for_retry(max_retries: int = 3) -> list[dict[str, Any]]:
                  AND (i.retry_count IS NULL OR i.retry_count < ?)
                  AND (
                    i.updated_at IS NULL
-                   OR datetime(i.updated_at, '+' || (1 << (i.retry_count + 1)) || ' minutes') <= datetime('now')
+                   OR datetime(i.updated_at, '+' || (i.retry_count + 1) || ' minutes') <= datetime('now')
                  )
                ORDER BY i.updated_at ASC
                LIMIT 10""",

@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     database_path: Path = Path("./data/triage.db")
     poll_interval_seconds: int = 60
     issue_discovery_window_minutes: int = 10080
-    max_issue_comments: int = 5
+    max_issue_comments: int = 10
     max_file_bytes: int = 20000
     api_host: str = "127.0.0.1"
     api_port: int = 8000
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     github_webhook_secret: str = ""
     search_per_page: int = 30
     search_max_pages: int = 5
-    search_lookback_minutes: int = 60
+    search_lookback_minutes: int = 2880
 
 
 settings = Settings()

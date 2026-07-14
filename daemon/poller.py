@@ -1,6 +1,7 @@
 import logging
 import re
 import unicodedata
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -62,6 +63,10 @@ def build_search_query(
         parts.append("comments:0")
     if min_stars > 0:
         parts.append(f"stars:>{min_stars}")
+
+    langs = prefs.get("languages") or []
+    for lang in langs:
+        parts.append(f"language:{lang.lower()}")
 
     return " ".join(parts)
 
@@ -169,6 +174,54 @@ def is_mostly_english(text: str | None, threshold: float = 0.15) -> bool:
     return (non_english / total) < threshold
 
 
+# Hardcoded language map for known repos to avoid API calls
+_KNOWN_REPOS: dict[str, str] = {
+    "python/cpython": "python",
+    "numpy/numpy": "python",
+    "numpy/numtype": "python",
+    "scipy/scipy": "python",
+    "scipy/scipy-stubs": "python",
+    "pandas-dev/pandas": "python",
+    "mne-tools/mne-python": "python",
+    "napari/napari": "python",
+    "napari/docs": "python",
+    "statsmodels/statsmodels": "python",
+    "sktime/sktime": "python",
+    "pgmpy/pgmpy": "python",
+    "tensorflow/quantum": "python",
+    "microsoft/onnxscript": "python",
+    "AcademySoftwareFoundation/OpenCue": "python",
+    "data-8/datascience": "python",
+    "nodejs/node": "javascript",
+    "denoland/deno": "typescript",
+    "uwdata/arquero": "javascript",
+    "simple-statistics/simple-statistics": "javascript",
+    "tensorflow/tfjs": "typescript",
+    "xenova/transformers.js": "typescript",
+    "BrainJS/brain.js": "javascript",
+    "ml5js/ml5-nextgen": "javascript",
+    "d3/d3": "javascript",
+    "pixijs/pixijs": "typescript",
+    "mrdoob/three.js": "javascript",
+    "facebook/react": "javascript",
+    "vuejs/core": "typescript",
+    "vercel/next.js": "typescript",
+    "angular/angular": "typescript",
+    "sveltejs/svelte": "typescript",
+    "jestjs/jest": "javascript",
+    "expressjs/express": "javascript",
+    "axios/axios": "javascript",
+    "lodash/lodash": "javascript",
+    "nuxt/nuxt": "typescript",
+    "reduxjs/redux": "typescript",
+    "chartjs/Chart.js": "javascript",
+    "sass/sass": "typescript",
+    "microsoft/TypeScript": "typescript",
+    "microsoft/onnxruntime": "c",
+    "duckdb/duckdb-wasm": "typescript",
+}
+
+
 class GitHubPoller:
     def __init__(self) -> None:
         self._rate_limiter = GitHubRateLimiter()
@@ -215,7 +268,7 @@ class GitHubPoller:
 
         normalized = []
         for item in pristine_items:
-            issue = await self._normalize_issue(item)
+            issue = await self._normalize_issue(item, is_priority=False)
             if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):
                 normalized.append(issue)
 
@@ -224,15 +277,23 @@ class GitHubPoller:
     async def fetch_priority_issues(self) -> list[dict[str, Any]]:
         cutoff = freshness_cutoff_utc()
         repos = get_priority_repos()
+        cooldown = settings.poll_interval_seconds * 3
+        now = time.monotonic()
         all_issues: list[dict[str, Any]] = []
         for r in repos:
+            last = getattr(self, "_last_priority_poll", {}).get(r["full_name"], 0)
+            if now - last < cooldown:
+                continue
+            if not hasattr(self, "_last_priority_poll"):
+                self._last_priority_poll = {}
+            self._last_priority_poll[r["full_name"]] = now
             query = build_priority_query(r["full_name"], cutoff)
             items, _, ok = await self._search_pages(query, max_pages=1)
             if not ok:
                 continue
             for item in items:
                 if passes_claim_verification(item, cutoff):
-                    issue = await self._normalize_issue(item)
+                    issue = await self._normalize_issue(item, is_priority=True)
                     if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):
                         issue["is_priority"] = True
                         all_issues.append(issue)
@@ -325,18 +386,29 @@ class GitHubPoller:
         self._repo_cache[repo_full_name] = info
         return info
 
-    async def _normalize_issue(self, item: dict[str, Any]) -> dict[str, Any]:
+    async def _normalize_issue(
+        self, item: dict[str, Any], is_priority: bool = False
+    ) -> dict[str, Any]:
         repo_url = item["repository_url"]
         repo_full_name = (
             repo_url.rsplit("/", 2)[-2] + "/" + repo_url.rsplit("/", 1)[-1]
         )
 
-        repo_info = await self._fetch_repo_info(repo_full_name)
-        labels = [label["name"] for label in item.get("labels", [])]
+        repo = item.get("repository") or {}
 
-        language = repo_info.get("language")
+        labels = [label["name"] for label in item.get("labels", [])]
+        language = self._detect_language_from_text(labels, item.get("title", ""))
+
         if not language:
-            language = self._detect_language_from_text(labels, item.get("title", ""))
+            language = _KNOWN_REPOS.get(repo_full_name)
+        if not language:
+            language = repo.get("language")
+
+        stars = repo.get("stargazers_count", 0)
+        if not language and is_priority:
+            repo_info = await self._fetch_repo_info(repo_full_name)
+            language = repo_info.get("language")
+            stars = repo_info.get("stars", 0)
 
         return {
             "github_id": item["id"],
@@ -347,7 +419,7 @@ class GitHubPoller:
             "repo_clone_url": f"https://github.com/{repo_full_name}.git",
             "labels": labels,
             "language": language,
-            "repo_stars": repo_info.get("stars", 0),
+            "repo_stars": stars,
             "state": item.get("state", "open"),
             "created_at": item.get("created_at"),
             "comments": item.get("comments", 0),
@@ -359,9 +431,12 @@ class GitHubPoller:
         self, labels: list[str], title: str
     ) -> str | None:
         combined = " ".join(labels + [title]).lower()
-        for lang in ("rust", "go", "python", "javascript"):
-            if lang in combined:
-                return lang
+        if "typescript" in combined or "ts" in combined.replace("typescript-stubs", "").split():
+            return "typescript"
+        if "javascript" in combined or "js" in combined.split():
+            return "javascript"
+        if "python" in combined or "py" in combined.split():
+            return "python"
         return None
 
     def issue_from_webhook(self, payload: dict[str, Any]) -> dict[str, Any] | None:

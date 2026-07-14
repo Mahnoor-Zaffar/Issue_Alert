@@ -45,12 +45,12 @@ Also add a **Difficulty** badge inside this section as a bullet point at the top
 
 **💡 One-Line Fix** — a single sentence, no bullets. Describe the fix in plain technical terms.
 
-**💬 What to Comment on the Issue** — a single paragraph, in a natural human tone, that the contributor can copy-paste as a GitHub comment to express interest and get assigned. It should:
-- Show you understand the issue
-- Briefly describe your approach
+**💬 What to Comment on the Issue** — a single, concise paragraph (3-5 sentences) that the contributor can copy-paste on GitHub. It must:
+- Sound like a real, enthusiastic developer — use natural conversational English, not corporate speak
+- Show you understand the root cause, not just the symptoms
+- Walk through your fix approach in plain language (e.g. "I'm thinking I'll refactor X to handle Y, then update the tests in Z")
 - Ask politely to be assigned
-- Sound like a real person, not a robot
-- Be 2-4 sentences max"""
+- **Do not** use markdown, emojis, or formatting — plain text only, since this goes in a GitHub comment"""
 
 
 SECTION_PATTERN = re.compile(
