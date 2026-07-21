@@ -1,18 +1,11 @@
 services:
-  daemon:
+  issue-alert:
     build: .
-    command: python -m daemon.main
-    env_file: .env
-    volumes:
-      - ./data:/app/data
+    container_name: issue-alert
     restart: unless-stopped
-
-  api:
-    build: .
-    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
-    env_file: .env
     ports:
       - "8000:8000"
     volumes:
       - ./data:/app/data
-    restart: unless-stopped
+    env_file:
+      - .env

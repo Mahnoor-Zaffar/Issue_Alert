@@ -1,0 +1,11 @@
+.venv
+.git
+.env
+data
+__pycache__
+node_modules
+react-app/node_modules
+react-app/src
+.opencode
+.pytest_cache
+*.md
