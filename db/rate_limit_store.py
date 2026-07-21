@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -22,6 +21,6 @@ def read_rate_limit() -> dict:
         if RATE_LIMIT_FILE.exists():
             with open(RATE_LIMIT_FILE) as f:
                 return json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         logger.exception("Failed to read rate limit info")
     return {"remaining": None, "reset_epoch": None}

@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 
-from openai import AsyncOpenAI, RateLimitError, APITimeoutError, APIConnectionError
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, RateLimitError
 
 from config.settings import settings
 
@@ -26,7 +26,10 @@ Write **six** sections with these exact headings:
 ## 💡 One-Line Fix
 ## 💬 What to Comment on the Issue
 
-**📁 Files You'll Need to Edit** — just a simple bullet list of filenames (e.g. `src/login.js`, `src/utils.js`). No explanations needed. **Only use files from the "Repository source files" list below — never invent a file path.**
+**📁 Files You'll Need to Edit** — just a simple bullet list of filenames
+(e.g. `src/login.js`, `src/utils.js`). No explanations needed.
+**Only use files from the "Repository source files" list below
+— never invent a file path.**
 
 **📝 Step-by-Step Plan** — include code snippets showing what to change, like:
 - Open `filename.js` line 42
@@ -45,10 +48,13 @@ Also add a **Difficulty** badge inside this section as a bullet point at the top
 
 **💡 One-Line Fix** — a single sentence, no bullets. Describe the fix in plain technical terms.
 
-**💬 What to Comment on the Issue** — a single, concise paragraph (3-5 sentences) that the contributor can copy-paste on GitHub. It must:
-- Sound like a real, enthusiastic developer — use natural conversational English, not corporate speak
+**💬 What to Comment on the Issue** — a single, concise paragraph (3-5 sentences)
+that the contributor can copy-paste on GitHub. It must:
+- Sound like a real, enthusiastic developer — use natural conversational English,
+  not corporate speak
 - Show you understand the root cause, not just the symptoms
-- Walk through your fix approach in plain language (e.g. "I'm thinking I'll refactor X to handle Y, then update the tests in Z")
+- Walk through your fix approach in plain language
+  (e.g. "I'm thinking I'll refactor X to handle Y, then update the tests in Z")
 - Ask politely to be assigned
 - **Do not** use markdown, emojis, or formatting — plain text only, since this goes in a GitHub comment"""
 
@@ -85,9 +91,7 @@ class TriageEngine:
         file_context: list[dict[str, str]],
         file_paths: list[str] | None = None,
     ) -> dict[str, str]:
-        user_message = self._build_user_message(
-            title, body, labels, language, repo_url, file_context, file_paths
-        )
+        user_message = self._build_user_message(title, body, labels, language, repo_url, file_context, file_paths)
 
         for attempt in range(3):
             try:
@@ -145,9 +149,7 @@ class TriageEngine:
             for fc in file_context:
                 parts.append(f"\n### {fc['path']}\n```\n{fc['content']}\n```")
         else:
-            parts.append(
-                "\n## Repository File Context\n(No file context available — clone failed or repo is empty.)"
-            )
+            parts.append("\n## Repository File Context\n(No file context available — clone failed or repo is empty.)")
 
         return "\n".join(parts)
 
@@ -158,9 +160,12 @@ class TriageEngine:
                 "architecture_context": match.group(1).strip(),
                 "issue_breakdown": match.group(2).strip(),
                 "action_plan": (
-                    "**📁 Files to edit:**\n" + match.group(3).strip()
-                    + "\n\n**📝 Step-by-step:**\n" + match.group(4).strip()
-                    + "\n\n**💡 One-Line Fix:**\n" + match.group(5).strip()
+                    "**📁 Files to edit:**\n"
+                    + match.group(3).strip()
+                    + "\n\n**📝 Step-by-step:**\n"
+                    + match.group(4).strip()
+                    + "\n\n**💡 One-Line Fix:**\n"
+                    + match.group(5).strip()
                 ),
                 "claim_comment": match.group(6).strip(),
                 "raw_response": raw,

@@ -10,17 +10,62 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 SOURCE_EXTENSIONS = {
-    ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java",
-    ".c", ".cpp", ".h", ".hpp", ".rb", ".php", ".swift", ".kt",
-    ".scala", ".m", ".mm", ".cs", ".fs", ".ex", ".exs", ".sh",
-    ".yml", ".yaml", ".json", ".toml", ".cfg", ".ini", ".conf",
-    ".css", ".scss", ".less", ".html", ".xml",
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".go",
+    ".rs",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".rb",
+    ".php",
+    ".swift",
+    ".kt",
+    ".scala",
+    ".m",
+    ".mm",
+    ".cs",
+    ".fs",
+    ".ex",
+    ".exs",
+    ".sh",
+    ".yml",
+    ".yaml",
+    ".json",
+    ".toml",
+    ".cfg",
+    ".ini",
+    ".conf",
+    ".css",
+    ".scss",
+    ".less",
+    ".html",
+    ".xml",
 }
 
 SKIP_DIRS = {
-    "node_modules", ".git", "__pycache__", ".venv", "venv", ".env",
-    "dist", "build", ".next", "target", "vendor", ".vscode", ".idea",
-    "coverage", ".github", "third_party", "third-party",
+    "node_modules",
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".env",
+    "dist",
+    "build",
+    ".next",
+    "target",
+    "vendor",
+    ".vscode",
+    ".idea",
+    "coverage",
+    ".github",
+    "third_party",
+    "third-party",
 }
 
 MAX_TREE_ENTRIES = 1000
@@ -59,9 +104,7 @@ def extract_repo_context(repo_clone_url: str) -> tuple[list[dict[str, str]], lis
         repo_data = repo_resp.json()
         default_branch = repo_data.get("default_branch", "main")
 
-        tree_resp = client.get(
-            f"https://api.github.com/repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1"
-        )
+        tree_resp = client.get(f"https://api.github.com/repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1")
         if tree_resp.status_code != 200:
             return [], []
 
@@ -95,5 +138,7 @@ def extract_repo_context(repo_clone_url: str) -> tuple[list[dict[str, str]], lis
             decoded = raw[: settings.max_file_bytes].decode("utf-8", errors="replace")
             context.append({"path": path, "content": decoded})
 
-        logger.info("Extracted context from %s: %d files (%d candidates)", repo_clone_url, len(context), len(candidates))
+        logger.info(
+            "Extracted context from %s: %d files (%d candidates)", repo_clone_url, len(context), len(candidates)
+        )
         return context, candidates

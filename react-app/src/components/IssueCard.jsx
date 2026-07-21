@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { setDifficulty, setBookmark, dismissIssue, setClaimed, triggerTriage } from "../api";
 
 async function dismissRepo(repo) {
@@ -34,18 +34,21 @@ function Badge({ children, className = "" }) {
 export default function IssueCard({ issue, onTriageClick, showToast, onDismiss, selectMode, selected, onToggleSelect }) {
   const [saving, setSaving] = useState(false);
   const [triaging, setTriaging] = useState(false);
+  const [queued, setQueued] = useState(false);
 
   const handleTriage = useCallback(async (e) => {
     e.stopPropagation();
+    if (queued) return;
     setTriaging(true);
     try {
       const data = await triggerTriage(issue.id);
+      setQueued(true);
       showToast?.(data?.message || "Triage queued", "success");
     } catch {
       showToast?.("Failed to queue triage", "error");
     }
     setTriaging(false);
-  }, [issue.id, showToast]);
+  }, [issue.id, queued, showToast]);
 
   const handleCycleDifficulty = useCallback(
     async (e) => {
@@ -105,6 +108,10 @@ export default function IssueCard({ issue, onTriageClick, showToast, onDismiss, 
     },
     [issue.id, onDismiss, showToast]
   );
+
+  useEffect(() => {
+    if (issue.status !== "pending") setQueued(false);
+  }, [issue.status]);
 
   const prStatus = issue.triage?.pr_status;
   const hasPR = !!issue.triage?.pr_url;
@@ -276,7 +283,7 @@ export default function IssueCard({ issue, onTriageClick, showToast, onDismiss, 
             {issue.claimed ? "✓ Claimed" : "○ Claim"}
           </button>
 
-          {issue.status === "pending" && (
+          {issue.status === "pending" && !queued && (
             <button
               onClick={handleTriage}
               disabled={triaging}
@@ -284,6 +291,11 @@ export default function IssueCard({ issue, onTriageClick, showToast, onDismiss, 
             >
               {triaging ? "..." : "Triage"}
             </button>
+          )}
+          {issue.status === "pending" && queued && (
+            <span className="text-xs font-medium px-[8px] py-[3px] rounded-sm text-success bg-success/10">
+              ✓ Queued
+            </span>
           )}
 
           {(issue.status === "extracting" || issue.status === "triaging") && (

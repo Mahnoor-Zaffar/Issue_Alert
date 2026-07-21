@@ -1,7 +1,7 @@
 import logging
 import re
-import unicodedata
 import time
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -123,9 +123,7 @@ def passes_claim_verification(
     return True
 
 
-def matches_language_preference(
-    issue: dict[str, Any], prefs: dict[str, Any] | None = None
-) -> bool:
+def matches_language_preference(issue: dict[str, Any], prefs: dict[str, Any] | None = None) -> bool:
     prefs = prefs or get_preferences()
     preferred = {lang.lower() for lang in (prefs.get("languages") or [])}
     if not preferred:
@@ -136,9 +134,7 @@ def matches_language_preference(
     return language in preferred
 
 
-def matches_label_preference(
-    issue: dict[str, Any], prefs: dict[str, Any] | None = None
-) -> bool:
+def matches_label_preference(issue: dict[str, Any], prefs: dict[str, Any] | None = None) -> bool:
     prefs = prefs or get_preferences()
     preferred = {label.lower() for label in (prefs.get("labels") or [])}
     if not preferred:
@@ -243,9 +239,7 @@ _KNOWN_REPOS: dict[str, str] = {
     "jupyter/notebook": "python",
     "jupyterlab/jupyterlab": "typescript",
     "ipython/ipython": "python",
-    "python/cpython": "python",
     "pre-commit/pre-commit": "python",
-    "nodejs/node": "javascript",
     "tailwindlabs/tailwindcss": "javascript",
     "prettier/prettier": "javascript",
     "eslint/eslint": "javascript",
@@ -309,9 +303,7 @@ class GitHubPoller:
             query,
         )
 
-        pristine_items = [
-            item for item in all_items if passes_claim_verification(item, cutoff)
-        ]
+        pristine_items = [item for item in all_items if passes_claim_verification(item, cutoff)]
         rejected = len(all_items) - len(pristine_items)
         if rejected:
             logger.info(
@@ -354,9 +346,7 @@ class GitHubPoller:
             logger.info("Found %d priority issue(s)", len(all_issues))
         return all_issues
 
-    async def _search_pages(
-        self, query: str, max_pages: int | None = None
-    ) -> tuple[list[dict[str, Any]], int, bool]:
+    async def _search_pages(self, query: str, max_pages: int | None = None) -> tuple[list[dict[str, Any]], int, bool]:
         pages = max_pages or settings.search_max_pages
         all_items: list[dict[str, Any]] = []
         total_count = 0
@@ -376,9 +366,7 @@ class GitHubPoller:
 
         return all_items, total_count, any_success
 
-    async def _fetch_page(
-        self, query: str, page: int
-    ) -> tuple[list[dict[str, Any]], int, bool]:
+    async def _fetch_page(self, query: str, page: int) -> tuple[list[dict[str, Any]], int, bool]:
         await self._rate_limiter.wait_if_needed()
 
         params = {
@@ -432,20 +420,16 @@ class GitHubPoller:
                 }
             else:
                 info = {"language": None, "stars": 0}
-        except (httpx.HTTPError, KeyError):
+        except httpx.HTTPError, KeyError:
             logger.warning("Failed to fetch repo info for %s", repo_full_name)
             info = {"language": None, "stars": 0}
 
         self._repo_cache[repo_full_name] = info
         return info
 
-    async def _normalize_issue(
-        self, item: dict[str, Any], is_priority: bool = False
-    ) -> dict[str, Any]:
+    async def _normalize_issue(self, item: dict[str, Any], is_priority: bool = False) -> dict[str, Any]:
         repo_url = item["repository_url"]
-        repo_full_name = (
-            repo_url.rsplit("/", 2)[-2] + "/" + repo_url.rsplit("/", 1)[-1]
-        )
+        repo_full_name = repo_url.rsplit("/", 2)[-2] + "/" + repo_url.rsplit("/", 1)[-1]
 
         repo = item.get("repository") or {}
 
@@ -480,9 +464,7 @@ class GitHubPoller:
             "assignee": item.get("assignee"),
         }
 
-    def _detect_language_from_text(
-        self, labels: list[str], title: str
-    ) -> str | None:
+    def _detect_language_from_text(self, labels: list[str], title: str) -> str | None:
         combined = " ".join(labels + [title]).lower()
         if "typescript" in combined or "ts" in combined.replace("typescript-stubs", "").split():
             return "typescript"
@@ -516,8 +498,7 @@ class GitHubPoller:
             "body": issue.get("body") or "",
             "html_url": issue["html_url"],
             "repo_full_name": repo_full_name,
-            "repo_clone_url": repo.get("clone_url")
-            or f"https://github.com/{repo_full_name}.git",
+            "repo_clone_url": repo.get("clone_url") or f"https://github.com/{repo_full_name}.git",
             "labels": labels,
             "language": (repo.get("language") or "").lower() or None,
             "repo_stars": repo.get("stargazers_count", 0),

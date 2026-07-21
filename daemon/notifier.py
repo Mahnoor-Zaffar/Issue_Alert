@@ -1,6 +1,6 @@
 import logging
-import subprocess
 import shlex
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -8,7 +8,11 @@ logger = logging.getLogger(__name__)
 def notify_new_issue(title: str, repo: str, url: str, priority: bool = False) -> None:
     prefix = "🔔 " if priority else ""
     try:
-        script = f'display notification "{shlex.quote(title)}" with title "{shlex.quote(prefix + repo)}" subtitle "{shlex.quote(url)}"'
+        script = (
+            f'display notification "{shlex.quote(title)}"'
+            f' with title "{shlex.quote(prefix + repo)}"'
+            f' subtitle "{shlex.quote(url)}"'
+        )
         subprocess.run(
             ["osascript", "-e", script],
             capture_output=True,

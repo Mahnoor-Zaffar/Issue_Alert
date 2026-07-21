@@ -1,11 +1,12 @@
 import asyncio
-import httpx
 import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from config.settings import settings
 from daemon.context_extractor import extract_repo_context
@@ -19,13 +20,11 @@ from daemon.poller import (
 from daemon.triage import TriageEngine
 from db.store import (
     dequeue_triage,
-    enqueue_triage,
     fetch_pending_webhooks,
     get_errored_issues_for_retry,
     get_issue,
     get_pending_triage_requests,
     get_preferences,
-    get_priority_repos,
     get_prs_pending_checks,
     increment_retry_count,
     init_db,
@@ -67,12 +66,11 @@ def acquire_daemon_lock() -> None:
             old_pid = int(DAEMON_LOCK.read_text().strip())
             os.kill(old_pid, 0)
             logger.error(
-                "Another daemon is already running (PID %d). "
-                "Stop it before starting a new one: pkill -f 'daemon.main'",
+                "Another daemon is already running (PID %d). Stop it before starting a new one: pkill -f 'daemon.main'",
                 old_pid,
             )
             sys.exit(1)
-        except (ValueError, OSError):
+        except ValueError, OSError:
             pass
     DAEMON_LOCK.write_text(str(os.getpid()))
 
@@ -83,7 +81,7 @@ def release_daemon_lock() -> None:
     try:
         if int(DAEMON_LOCK.read_text().strip()) == os.getpid():
             DAEMON_LOCK.unlink()
-    except (ValueError, OSError):
+    except ValueError, OSError:
         pass
 
 
@@ -150,20 +148,16 @@ async def process_webhooks(poller: GitHubPoller, triage_engine: TriageEngine) ->
     return processed
 
 
-async def process_triage_queue(poller: GitHubPoller, triage_engine: TriageEngine) -> int:
-    processed = 0
-    for issue_id in get_pending_triage_requests():
-        issue = get_issue(issue_id)
-        if not issue or issue["status"] == "complete":
-            dequeue_triage(issue_id)
-            continue
+async def _triage_single(issue_id: int, triage_engine: TriageEngine, sem: asyncio.Semaphore) -> bool:
+    issue = get_issue(issue_id)
+    if not issue or issue["status"] == "complete":
+        dequeue_triage(issue_id)
+        return False
 
+    async with sem:
         logger.info("Processing queued triage for issue #%d: %s", issue_id, issue["title"])
-
         update_issue_status(issue_id, "extracting")
-        file_context, file_paths = await asyncio.to_thread(
-            extract_repo_context, issue["repo_clone_url"]
-        )
+        file_context, file_paths = await asyncio.to_thread(extract_repo_context, issue["repo_clone_url"])
 
         update_issue_status(issue_id, "triaging")
         try:
@@ -188,14 +182,21 @@ async def process_triage_queue(poller: GitHubPoller, triage_engine: TriageEngine
             )
             update_issue_status(issue_id, "complete")
             logger.info("Queued triage complete for issue #%d", issue_id)
-            processed += 1
         except Exception as exc:
             logger.exception("Queued triage failed for issue #%d", issue_id)
             update_issue_status(issue_id, "error", str(exc))
 
         dequeue_triage(issue_id)
+        return True
 
-    return processed
+
+async def process_triage_queue(poller: GitHubPoller, triage_engine: TriageEngine) -> int:
+    issue_ids = get_pending_triage_requests()
+    if not issue_ids:
+        return 0
+    sem = asyncio.Semaphore(3)
+    results = await asyncio.gather(*[_triage_single(iid, triage_engine, sem) for iid in issue_ids])
+    return sum(1 for r in results if r)
 
 
 async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
@@ -258,13 +259,10 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
         message = search_note
     elif len(issues) == 0 and new_count == 0:
         comment_note = (
-            "zero comments"
-            if settings.max_issue_comments == 0
-            else f"≤{settings.max_issue_comments} comments"
+            "zero comments" if settings.max_issue_comments == 0 else f"≤{settings.max_issue_comments} comments"
         )
         message = (
-            f"No fresh unclaimed issues in the last "
-            f"{settings.issue_discovery_window_minutes} minutes ({comment_note})"
+            f"No fresh unclaimed issues in the last {settings.issue_discovery_window_minutes} minutes ({comment_note})"
         )
     elif skipped_seen:
         message = f"{skipped_seen} already seen"
@@ -306,16 +304,16 @@ async def _retry_single_issue(issue_row: dict[str, Any], sem: asyncio.Semaphore)
         }
         if isinstance(issue_data["labels"], str):
             import json
+
             issue_data["labels"] = json.loads(issue_data["labels"])
         if issue_data["github_id"] is None:
             return
         from daemon.triage import TriageEngine
+
         triage_engine = TriageEngine()
         try:
             update_issue_status(issue_id, "extracting")
-            file_context, file_paths = await asyncio.to_thread(
-                extract_repo_context, issue_row["repo_clone_url"]
-            )
+            file_context, file_paths = await asyncio.to_thread(extract_repo_context, issue_row["repo_clone_url"])
             update_issue_status(issue_id, "triaging")
             result = await triage_engine.triage(
                 title=issue_data["title"],
@@ -380,9 +378,7 @@ async def check_pr_checks() -> None:
                 if not concluded:
                     update_pr_status(pr["issue_id"], "pending")
                     continue
-                all_success = all(
-                    c.get("conclusion") == "success" for c in concluded
-                )
+                all_success = all(c.get("conclusion") == "success" for c in concluded)
                 update_pr_status(
                     pr["issue_id"],
                     "success" if all_success else "failure",

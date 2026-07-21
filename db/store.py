@@ -10,6 +10,7 @@ from config.settings import settings
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 MIGRATIONS = [
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_triage_requests_issue_id ON triage_requests(issue_id)",
     "ALTER TABLE issues ADD COLUMN claimed INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN repo_stars INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN score REAL NOT NULL DEFAULT 0",
@@ -34,9 +35,7 @@ def _utcnow() -> str:
 
 
 def _freshness_cutoff_iso() -> str:
-    cutoff = datetime.now(timezone.utc) - timedelta(
-        minutes=settings.issue_discovery_window_minutes
-    )
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=settings.issue_discovery_window_minutes)
     return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -54,9 +53,7 @@ def _visible_issue_clauses(
     if not bookmarked_only:
         clauses.append("i.viewed_at IS NULL")
     if not include_stale:
-        clauses.append(
-            "(i.github_created_at IS NOT NULL AND i.github_created_at >= ?)"
-        )
+        clauses.append("(i.github_created_at IS NOT NULL AND i.github_created_at >= ?)")
         params.append(_freshness_cutoff_iso())
 
     return clauses, params
@@ -92,9 +89,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         except sqlite3.OperationalError:
             pass
 
-    row = conn.execute(
-        "SELECT labels, min_stars, languages FROM user_preferences WHERE id = 1"
-    ).fetchone()
+    row = conn.execute("SELECT labels, min_stars, languages FROM user_preferences WHERE id = 1").fetchone()
     if row:
         labels = json.loads(row["labels"] or "[]")
         min_stars = row["min_stars"]
@@ -109,7 +104,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
             labels = list(new_labels)
             needs_update = True
         elif "open source" in labels or "open-source" in labels:
-            labels = [l for l in labels if l not in ("open source", "open-source")]
+            labels = [label for label in labels if label not in ("open source", "open-source")]
             needs_update = True
 
         old_default_languages = {"javascript", "python", "go", "rust"}
@@ -151,9 +146,7 @@ def init_db() -> None:
 
 def is_issue_seen(github_id: int) -> bool:
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM seen_issues WHERE github_id = ?", (github_id,)
-        ).fetchone()
+        row = conn.execute("SELECT 1 FROM seen_issues WHERE github_id = ?", (github_id,)).fetchone()
         return row is not None
 
 
@@ -275,6 +268,7 @@ def purge_stale_issues() -> int:
 
 # ── Difficulty ──────────────────────────────────────────
 
+
 def parse_difficulty(text: str) -> str | None:
     if not text:
         return None
@@ -289,6 +283,7 @@ def parse_difficulty(text: str) -> str | None:
 
 # ── Triage Queue ──────────────────────────────────────────
 
+
 def enqueue_triage(issue_id: int) -> None:
     with get_connection() as conn:
         conn.execute(
@@ -299,9 +294,7 @@ def enqueue_triage(issue_id: int) -> None:
 
 def get_pending_triage_requests() -> list[int]:
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT issue_id FROM triage_requests ORDER BY created_at ASC"
-        ).fetchall()
+        rows = conn.execute("SELECT issue_id FROM triage_requests ORDER BY created_at ASC").fetchall()
         return [r["issue_id"] for r in rows]
 
 
@@ -311,6 +304,7 @@ def dequeue_triage(issue_id: int) -> None:
 
 
 # ── Daily Stats ──────────────────────────────────────────
+
 
 def record_daily_stats() -> None:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -561,10 +555,15 @@ def get_personal_stats() -> dict[str, Any]:
         claimed = conn.execute("SELECT COUNT(*) FROM issues WHERE claimed = 1 AND dismissed = 0").fetchone()[0]
         triaged = conn.execute("SELECT COUNT(*) FROM issues WHERE status = 'complete' AND dismissed = 0").fetchone()[0]
         lang_rows = conn.execute(
-            "SELECT language, COUNT(*) as cnt FROM issues WHERE language IS NOT NULL AND language != '' AND dismissed = 0 GROUP BY language ORDER BY cnt DESC"
+            "SELECT language, COUNT(*) as cnt FROM issues"
+            " WHERE language IS NOT NULL AND language != '' AND dismissed = 0"
+            " GROUP BY language ORDER BY cnt DESC"
         ).fetchall()
         diff_rows = conn.execute(
-            "SELECT t.difficulty, COUNT(*) as cnt FROM issues i JOIN triage_reports t ON t.issue_id = i.id WHERE i.dismissed = 0 AND t.difficulty IS NOT NULL GROUP BY t.difficulty"
+            "SELECT t.difficulty, COUNT(*) as cnt FROM issues i"
+            " JOIN triage_reports t ON t.issue_id = i.id"
+            " WHERE i.dismissed = 0 AND t.difficulty IS NOT NULL"
+            " GROUP BY t.difficulty"
         ).fetchall()
         return {
             "bookmarked": bookmarked,
@@ -614,9 +613,7 @@ def request_poll() -> None:
 
 def get_last_poll_time() -> datetime | None:
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT last_poll_at FROM daemon_state WHERE id = 1"
-        ).fetchone()
+        row = conn.execute("SELECT last_poll_at FROM daemon_state WHERE id = 1").fetchone()
         if row and row["last_poll_at"]:
             dt = datetime.fromisoformat(row["last_poll_at"])
             return dt.replace(tzinfo=timezone.utc)
@@ -625,9 +622,7 @@ def get_last_poll_time() -> datetime | None:
 
 def is_poll_requested() -> bool:
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT poll_requested FROM daemon_state WHERE id = 1"
-        ).fetchone()
+        row = conn.execute("SELECT poll_requested FROM daemon_state WHERE id = 1").fetchone()
         return bool(row and row["poll_requested"])
 
 
@@ -766,6 +761,7 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
 
 
 # ── Priority Repos ──────────────────────────────────────────
+
 
 def get_priority_repos() -> list[dict[str, Any]]:
     with get_connection() as conn:
