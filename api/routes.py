@@ -21,10 +21,12 @@ from db.rate_limit_store import read_rate_limit
 from db.store import (
     add_priority_repo,
     clear_all_data,
+    dismiss_repo_issues,
     enqueue_triage,
     enqueue_webhook,
     get_issue,
     get_issues_updated_since,
+    get_personal_stats,
     get_preferences,
     get_priority_repos,
     get_prs_pending_checks,
@@ -80,6 +82,7 @@ async def api_list_issues(
     label: str | None = None,
     show_dismissed: bool = False,
     bookmarked_only: bool = False,
+    claimed_only: bool = False,
     is_priority: bool | None = None,
     difficulty: str | None = None,
 ):
@@ -92,6 +95,7 @@ async def api_list_issues(
             label=label,
             show_dismissed=show_dismissed,
             bookmarked_only=bookmarked_only,
+            claimed_only=claimed_only,
             is_priority=is_priority,
             difficulty=difficulty,
         )
@@ -136,6 +140,14 @@ async def api_dismiss_issue(issue_id: int, body: FlagBody):
     return get_issue(issue_id)
 
 
+@router.post("/api/issues/{issue_id}/claim")
+async def api_claim_issue(issue_id: int, body: FlagBody):
+    if not get_issue(issue_id):
+        raise HTTPException(status_code=404, detail="Issue not found")
+    set_issue_flag(issue_id, "claimed", body.value)
+    return get_issue(issue_id)
+
+
 @router.get("/api/health")
 async def api_health():
     stats = get_stats()
@@ -158,6 +170,20 @@ async def api_daemon_log(lines: int = 50):
         return {"lines": all_lines[-lines:]}
     except OSError:
         return {"lines": []}
+
+
+@router.get("/api/stats/personal")
+async def api_personal_stats():
+    return get_personal_stats()
+
+
+@router.post("/api/issues/dismiss-repo")
+async def api_dismiss_repo(body: dict):
+    repo = body.get("repo_full_name")
+    if not repo:
+        raise HTTPException(status_code=400, detail="repo_full_name required")
+    count = dismiss_repo_issues(repo)
+    return {"dismissed": count, "message": f"Dismissed {count} issue(s) from {repo}"}
 
 
 @router.get("/api/stats/history")
@@ -203,17 +229,37 @@ async def api_set_difficulty(issue_id: int, body: DifficultyBody):
     return get_issue(issue_id)
 
 
-@router.post("/api/issues/{issue_id}/re-triage")
-async def api_re_triage(issue_id: int):
+@router.post("/api/issues/batch-triage")
+async def api_batch_triage(body: dict):
+    ids = body.get("ids", [])
+    if not ids:
+        raise HTTPException(status_code=400, detail="No issue IDs provided")
+    queued = 0
+    for issue_id in ids:
+        issue = get_issue(issue_id)
+        if not issue or issue.get("status") == "complete" or issue.get("status") in ("extracting", "triaging"):
+            continue
+        update_issue_status(issue_id, "pending")
+        enqueue_triage(issue_id)
+        queued += 1
+    if queued:
+        request_poll()
+    return {"status": "queued", "queued": queued, "message": f"{queued} issue(s) queued for triage"}
+
+
+@router.post("/api/issues/{issue_id}/triage")
+async def api_triage_issue(issue_id: int):
     issue = get_issue(issue_id)
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
-    if not issue.get("triage"):
-        raise HTTPException(status_code=400, detail="Issue has no triage report to replace")
+    if issue.get("status") == "complete":
+        raise HTTPException(status_code=400, detail="Issue already triaged")
+    if issue.get("status") in ("extracting", "triaging"):
+        raise HTTPException(status_code=400, detail="Triage already in progress")
     update_issue_status(issue_id, "pending")
     enqueue_triage(issue_id)
     request_poll()
-    return {"status": "queued", "message": "Re-triage queued — check back in a moment"}
+    return {"status": "queued", "message": "Triage queued — check back in a moment"}
 
 
 @router.get("/api/pr-details")

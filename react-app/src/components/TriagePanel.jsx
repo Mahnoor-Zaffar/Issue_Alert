@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { reTriage, openPR, fetchPRDetails } from "../api";
+import { reTriage, openPR, fetchPRDetails, setClaimed } from "../api";
 
 function Section({ title, children }) {
   return (
@@ -28,6 +28,7 @@ export default function TriagePanel({ issue, onClose, showToast }) {
   const [prOpening, setPROpening] = useState(false);
   const [retriaging, setRetriaging] = useState(false);
   const [retriageMsg, setRetriageMsg] = useState("");
+  const [claiming, setClaiming] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const t = issue?.triage;
@@ -74,6 +75,30 @@ export default function TriagePanel({ issue, onClose, showToast }) {
     }
     setPRLoading(false);
   }, [prUrl, prDetails, showToast]);
+
+  const handleCopyAndOpen = useCallback(() => {
+    if (!claimComment) return;
+    navigator.clipboard.writeText(claimComment).then(() => {
+      window.open(issue.html_url, "_blank");
+      showToast?.("Copied & opened — paste your comment on GitHub", "success");
+    }).catch(() => {
+      showToast?.("Failed to copy", "error");
+    });
+  }, [claimComment, issue.html_url, showToast]);
+
+  const handleClaimToggle = useCallback(async () => {
+    setClaiming(true);
+    try {
+      await setClaimed(issue.id, !issue.claimed);
+      if (!issue.claimed && claimComment) {
+        navigator.clipboard.writeText(claimComment).catch(() => {});
+      }
+      showToast?.(issue.claimed ? "Unclaimed" : "Claimed! Comment copied", "success");
+    } catch {
+      showToast?.("Failed to update claim", "error");
+    }
+    setClaiming(false);
+  }, [issue.id, issue.claimed, claimComment, showToast]);
 
   const handleCopy = useCallback(() => {
     if (!claimComment) return;
@@ -133,12 +158,20 @@ export default function TriagePanel({ issue, onClose, showToast }) {
             <Section title="💬 Comment to Get Assigned">
               <div className="bg-success/5 border border-success/20 rounded-md p-3">
                 <p className="text-[13px] text-ink-muted leading-relaxed mb-2">{claimComment}</p>
-                <button
-                  onClick={handleCopy}
-                  className="text-xs font-medium px-[10px] py-[4px] rounded-md bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none"
-                >
-                  {copied ? "✓ Copied" : "📋 Copy"}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCopy}
+                    className="text-xs font-medium px-[10px] py-[4px] rounded-md bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none"
+                  >
+                    {copied ? "✓ Copied" : "📋 Copy"}
+                  </button>
+                  <button
+                    onClick={handleCopyAndOpen}
+                    className="text-xs font-medium px-[10px] py-[4px] rounded-md bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none"
+                  >
+                    📋 Copy & Open
+                  </button>
+                </div>
               </div>
             </Section>
           )}
@@ -203,7 +236,18 @@ export default function TriagePanel({ issue, onClose, showToast }) {
           )}
 
           {/* Action buttons */}
-          <div className="flex gap-2 pt-2">
+          <div className="flex gap-2 pt-2 flex-wrap">
+            <button
+              onClick={handleClaimToggle}
+              disabled={claiming}
+              className={`text-xs font-medium px-[12px] py-[6px] rounded-md transition-colors cursor-pointer border-none disabled:opacity-40 ${
+                issue.claimed
+                  ? "bg-warning/15 text-warning"
+                  : "bg-primary text-white hover:bg-primary-hover"
+              }`}
+            >
+              {claiming ? "..." : issue.claimed ? "✓ Claimed" : "Claim Issue"}
+            </button>
             {issue.difficulty === "easy" && !prUrl && (
               <button
                 onClick={handleOpenPR}

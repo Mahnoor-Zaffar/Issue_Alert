@@ -133,52 +133,7 @@ async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine,
             issue_data["html_url"],
             priority=issue_data.get("is_priority", False),
         )
-    update_issue_status(issue_id, "notified")
-
-    update_issue_status(issue_id, "extracting")
-    file_context, file_paths = await asyncio.to_thread(
-        extract_repo_context, issue_data["repo_clone_url"]
-    )
-
-    update_issue_status(issue_id, "triaging")
-    try:
-        if not (issue_data.get("body") or "").strip() and not file_context:
-            logger.info("Skipping LLM triage for #%d — no body or file context", issue_id)
-            insert_triage_report(
-                issue_id=issue_id,
-                architecture_context="Insufficient context — issue body is empty and repo clone yielded no files.",
-                issue_breakdown=issue_data.get("title", ""),
-                action_plan="Review the issue on GitHub directly before contributing.",
-                raw_response="",
-            )
-            update_issue_status(issue_id, "complete")
-            return True
-
-        result = await triage_engine.triage(
-            title=issue_data["title"],
-            body=issue_data["body"],
-            labels=issue_data["labels"],
-            language=issue_data.get("language"),
-            repo_url=issue_data["html_url"],
-            file_context=file_context,
-            file_paths=file_paths,
-        )
-        difficulty = parse_difficulty(result["action_plan"])
-        insert_triage_report(
-            issue_id=issue_id,
-            architecture_context=result["architecture_context"],
-            issue_breakdown=result["issue_breakdown"],
-            action_plan=result["action_plan"],
-            raw_response=result["raw_response"],
-            difficulty=difficulty,
-            claim_comment=result.get("claim_comment"),
-        )
-        update_issue_status(issue_id, "complete")
-        logger.info("Triage complete for issue #%d", issue_id)
-
-    except Exception as exc:
-        logger.exception("Triage failed for issue #%d", issue_id)
-        update_issue_status(issue_id, "error", str(exc))
+    update_issue_status(issue_id, "pending")
 
     return True
 

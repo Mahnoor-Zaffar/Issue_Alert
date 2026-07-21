@@ -17,6 +17,10 @@ _LINKED_PR_BODY_RE = re.compile(
     r"github\.com/[\w.-]+/[\w.-]+/pull/\d+",
     re.IGNORECASE,
 )
+_CLAIMED_BODY_RE = re.compile(
+    r"\b(i['’]?ll\s+(take|work\s+on|implement|fix)|i\s+(claim|want\s+this)|claim\s+this\s+(bounty|issue))\b",
+    re.IGNORECASE,
+)
 
 
 def freshness_cutoff_utc(
@@ -106,6 +110,8 @@ def passes_claim_verification(
 
     body = item.get("body") or ""
     if _LINKED_PR_BODY_RE.search(body):
+        return False
+    if _CLAIMED_BODY_RE.search(body):
         return False
 
     created_at = item.get("created_at")
@@ -219,6 +225,53 @@ _KNOWN_REPOS: dict[str, str] = {
     "microsoft/TypeScript": "typescript",
     "microsoft/onnxruntime": "c",
     "duckdb/duckdb-wasm": "typescript",
+    "microsoft/vscode": "typescript",
+    "home-assistant/core": "python",
+    "ansible/ansible": "python",
+    "scikit-learn/scikit-learn": "python",
+    "keras-team/keras": "python",
+    "pytorch/pytorch": "python",
+    "apache/airflow": "python",
+    "django/django": "python",
+    "psf/requests": "python",
+    "certifi/python-certifi": "python",
+    "fastapi/fastapi": "python",
+    "tiangolo/fastapi": "python",
+    "pallets/flask": "python",
+    "getsentry/sentry": "python",
+    "bokeh/bokeh": "python",
+    "jupyter/notebook": "python",
+    "jupyterlab/jupyterlab": "typescript",
+    "ipython/ipython": "python",
+    "python/cpython": "python",
+    "pre-commit/pre-commit": "python",
+    "nodejs/node": "javascript",
+    "tailwindlabs/tailwindcss": "javascript",
+    "prettier/prettier": "javascript",
+    "eslint/eslint": "javascript",
+    "webpack/webpack": "javascript",
+    "babel/babel": "javascript",
+    "gulpjs/gulp": "javascript",
+    "parcel-bundler/parcel": "javascript",
+    "rollup/rollup": "javascript",
+    "mochajs/mocha": "javascript",
+    "jasmine/jasmine": "javascript",
+    "cypress-io/cypress": "typescript",
+    "storybookjs/storybook": "typescript",
+    "immerjs/immer": "typescript",
+    "mobxjs/mobx": "typescript",
+    "solidjs/solid": "typescript",
+    "gatsbyjs/gatsby": "javascript",
+    "remix-run/remix": "typescript",
+    "TanStack/query": "typescript",
+    "TanStack/router": "typescript",
+    "trpc/trpc": "typescript",
+    "pmndrs/zustand": "typescript",
+    "vercel/swr": "typescript",
+    "npm/cli": "javascript",
+    "yarnpkg/berry": "typescript",
+    "oven-sh/bun": "javascript",
+    "biomejs/biome": "rust",
 }
 
 
@@ -397,12 +450,12 @@ class GitHubPoller:
         repo = item.get("repository") or {}
 
         labels = [label["name"] for label in item.get("labels", [])]
-        language = self._detect_language_from_text(labels, item.get("title", ""))
+        language = repo.get("language")
 
         if not language:
             language = _KNOWN_REPOS.get(repo_full_name)
         if not language:
-            language = repo.get("language")
+            language = self._detect_language_from_text(labels, item.get("title", ""))
 
         stars = repo.get("stargazers_count", 0)
         if not language and is_priority:

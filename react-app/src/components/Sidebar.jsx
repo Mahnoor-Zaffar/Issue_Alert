@@ -9,6 +9,19 @@ import {
   fetchDaemonLog,
 } from "../api";
 
+function StatBadge({ label, value, className = "" }) {
+  return (
+    <div className="bg-surface-1 border border-hairline rounded-md p-[10px]">
+      <div className={`text-[18px] font-semibold tracking-[-0.03em] leading-tight ${className}`}>
+        {value ?? 0}
+      </div>
+      <div className="text-[10px] font-medium text-ink-subtle uppercase tracking-[0.04em] mt-[2px]">
+        {label}
+      </div>
+    </div>
+  );
+}
+
 function Sparkline({ data, height = 28, width = 180 }) {
   if (!data || data.length < 2) return null;
   const values = data.map((d) => d.triaged);
@@ -33,6 +46,7 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
   const [rateLimit, setRateLimit] = useState(null);
   const [logLines, setLogLines] = useState([]);
   const [logOpen, setLogOpen] = useState(false);
+  const [personalStats, setPersonalStats] = useState(null);
 
   useEffect(() => {
     fetchPreferences().then(setPrefs).catch(() => {});
@@ -40,6 +54,14 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
     const loadRL = () => fetchRateLimit().then(setRateLimit).catch(() => {});
     loadRL();
     const iv = setInterval(loadRL, 30000);
+    return () => clearInterval(iv);
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/stats/personal").then(r => r.json()).then(setPersonalStats).catch(() => {});
+    const iv = setInterval(() => {
+      fetch("/api/stats/personal").then(r => r.json()).then(setPersonalStats).catch(() => {});
+    }, 15000);
     return () => clearInterval(iv);
   }, []);
 
@@ -144,6 +166,38 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
             <span>{statsHistory[0]?.date?.slice(5)}</span>
             <span>{statsHistory[statsHistory.length - 1]?.date?.slice(5)}</span>
           </div>
+        </div>
+      )}
+
+      {/* Personal stats */}
+      {personalStats && (
+        <div className="bg-surface-1 border border-hairline rounded-md p-[10px]">
+          <div className="text-[11px] font-medium text-ink-subtle uppercase tracking-[0.04em] mb-[6px]">
+            Your Activity
+          </div>
+          <div className="grid grid-cols-3 gap-1 mb-2">
+            <StatBadge label="Saved" value={personalStats.bookmarked} className="text-warning" />
+            <StatBadge label="Claimed" value={personalStats.claimed} className="text-primary" />
+            <StatBadge label="Triaged" value={personalStats.triaged} className="text-success" />
+          </div>
+          {personalStats.languages && Object.keys(personalStats.languages).length > 0 && (
+            <div className="text-[10px] text-ink-muted">
+              {Object.entries(personalStats.languages).map(([lang, count]) => (
+                <span key={lang} className="mr-2">
+                  {lang}: <strong className="text-ink">{count}</strong>
+                </span>
+              ))}
+            </div>
+          )}
+          {personalStats.difficulties && Object.keys(personalStats.difficulties).length > 0 && (
+            <div className="text-[10px] text-ink-muted mt-1">
+              {Object.entries(personalStats.difficulties).map(([diff, count]) => (
+                <span key={diff} className="mr-2">
+                  {diff}: <strong className="text-ink">{count}</strong>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

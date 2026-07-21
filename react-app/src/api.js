@@ -50,7 +50,11 @@ export function fetchIssue(id) {
 }
 
 export function reTriage(id) {
-  return post(`/api/issues/${id}/re-triage`);
+  return post(`/api/issues/${id}/triage`);
+}
+
+export function triggerTriage(id) {
+  return post(`/api/issues/${id}/triage`);
 }
 
 export function openPR(id) {
@@ -67,6 +71,10 @@ export function setBookmark(id, bookmarked) {
 
 export function dismissIssue(id) {
   return post(`/api/issues/${id}/dismiss`, { value: true });
+}
+
+export function setClaimed(id, claimed) {
+  return post(`/api/issues/${id}/claim`, { value: claimed });
 }
 
 export function fetchPRDetails(prUrl) {

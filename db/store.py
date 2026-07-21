@@ -10,6 +10,7 @@ from config.settings import settings
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 MIGRATIONS = [
+    "ALTER TABLE issues ADD COLUMN claimed INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN repo_stars INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN score REAL NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN bookmarked INTEGER NOT NULL DEFAULT 0",
@@ -347,7 +348,7 @@ def get_stats_history(days: int = 14) -> list[dict[str, Any]]:
 
 
 def set_issue_flag(issue_id: int, field: str, value: bool) -> None:
-    if field not in ("bookmarked", "dismissed"):
+    if field not in ("bookmarked", "dismissed", "claimed"):
         raise ValueError(f"Invalid field: {field}")
     with get_connection() as conn:
         conn.execute(
@@ -412,6 +413,7 @@ def list_issues(
     label: str | None = None,
     show_dismissed: bool = False,
     bookmarked_only: bool = False,
+    claimed_only: bool = False,
     is_priority: bool | None = None,
     difficulty: str | None = None,
 ) -> list[dict[str, Any]]:
@@ -432,6 +434,8 @@ def list_issues(
         params.append(f'%"{label}"%')
     if bookmarked_only:
         clauses.append("i.bookmarked = 1")
+    if claimed_only:
+        clauses.append("i.claimed = 1")
     if is_priority is not None:
         clauses.append("i.is_priority = ?")
         params.append(1 if is_priority else 0)
@@ -549,6 +553,36 @@ def get_stats() -> dict[str, Any]:
             "last_poll_total_count": daemon["last_poll_total_count"] if daemon else 0,
             "last_poll_message": daemon["last_poll_message"] if daemon else None,
         }
+
+
+def get_personal_stats() -> dict[str, Any]:
+    with get_connection() as conn:
+        bookmarked = conn.execute("SELECT COUNT(*) FROM issues WHERE bookmarked = 1 AND dismissed = 0").fetchone()[0]
+        claimed = conn.execute("SELECT COUNT(*) FROM issues WHERE claimed = 1 AND dismissed = 0").fetchone()[0]
+        triaged = conn.execute("SELECT COUNT(*) FROM issues WHERE status = 'complete' AND dismissed = 0").fetchone()[0]
+        lang_rows = conn.execute(
+            "SELECT language, COUNT(*) as cnt FROM issues WHERE language IS NOT NULL AND language != '' AND dismissed = 0 GROUP BY language ORDER BY cnt DESC"
+        ).fetchall()
+        diff_rows = conn.execute(
+            "SELECT t.difficulty, COUNT(*) as cnt FROM issues i JOIN triage_reports t ON t.issue_id = i.id WHERE i.dismissed = 0 AND t.difficulty IS NOT NULL GROUP BY t.difficulty"
+        ).fetchall()
+        return {
+            "bookmarked": bookmarked,
+            "claimed": claimed,
+            "triaged": triaged,
+            "languages": {r["language"]: r["cnt"] for r in lang_rows},
+            "difficulties": {r["difficulty"]: r["cnt"] for r in diff_rows},
+        }
+
+
+def dismiss_repo_issues(repo_full_name: str) -> int:
+    now = _utcnow()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE issues SET dismissed = 1, updated_at = ? WHERE repo_full_name = ? AND dismissed = 0",
+            (now, repo_full_name),
+        )
+        return cursor.rowcount
 
 
 def update_poll_state(
@@ -700,6 +734,7 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
     issue["labels"] = json.loads(issue.get("labels") or "[]")
     issue["bookmarked"] = bool(issue.get("bookmarked"))
     issue["dismissed"] = bool(issue.get("dismissed"))
+    issue["claimed"] = bool(issue.get("claimed"))
     difficulty = issue.pop("difficulty", None)
     pr_url = issue.pop("pr_url", None)
     pr_head_sha = issue.pop("pr_head_sha", None)

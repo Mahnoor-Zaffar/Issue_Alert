@@ -1,5 +1,14 @@
 import { useState, useCallback } from "react";
-import { setDifficulty, setBookmark, dismissIssue } from "../api";
+import { setDifficulty, setBookmark, dismissIssue, setClaimed, triggerTriage } from "../api";
+
+async function dismissRepo(repo) {
+  const res = await fetch("/api/issues/dismiss-repo", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo_full_name: repo }),
+  });
+  return res.json();
+}
 import { timeAgo } from "../utils";
 
 const DIFFICULTY_LABELS = { easy: "Easy", medium: "Medium", hard: "Hard" };
@@ -22,8 +31,21 @@ function Badge({ children, className = "" }) {
   );
 }
 
-export default function IssueCard({ issue, onTriageClick, showToast, onDismiss }) {
+export default function IssueCard({ issue, onTriageClick, showToast, onDismiss, selectMode, selected, onToggleSelect }) {
   const [saving, setSaving] = useState(false);
+  const [triaging, setTriaging] = useState(false);
+
+  const handleTriage = useCallback(async (e) => {
+    e.stopPropagation();
+    setTriaging(true);
+    try {
+      const data = await triggerTriage(issue.id);
+      showToast?.(data?.message || "Triage queued", "success");
+    } catch {
+      showToast?.("Failed to queue triage", "error");
+    }
+    setTriaging(false);
+  }, [issue.id, showToast]);
 
   const handleCycleDifficulty = useCallback(
     async (e) => {
@@ -53,6 +75,22 @@ export default function IssueCard({ issue, onTriageClick, showToast, onDismiss }
       setSaving(false);
     },
     [issue.id, issue.bookmarked, showToast]
+  );
+
+  const handleClaim = useCallback(
+    async (e) => {
+      e.stopPropagation();
+      try {
+        const updated = await setClaimed(issue.id, !issue.claimed);
+        if (updated && updated.claimed !== undefined) {
+          issue.claimed = updated.claimed;
+        }
+        showToast?.(issue.claimed ? "Unclaimed" : "Claimed!", "success");
+      } catch {
+        showToast?.("Failed to update claim", "error");
+      }
+    },
+    [issue.id, issue.claimed, showToast]
   );
 
   const handleDismiss = useCallback(
@@ -86,11 +124,38 @@ export default function IssueCard({ issue, onTriageClick, showToast, onDismiss }
       />
 
       <div className="relative">
+        {/* Select checkbox */}
+        {selectMode && (
+          <div className="absolute -left-[16px] top-1/2 -translate-y-1/2 z-10">
+            <input
+              type="checkbox"
+              checked={!!selected}
+              onChange={() => onToggleSelect(issue.id)}
+              className="accent-primary w-[16px] h-[16px] cursor-pointer"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        )}
+
         {/* Meta row */}
         <div className="flex items-center gap-[6px] mb-[12px] flex-wrap">
-          <span className="text-[11px] font-medium text-ink-subtle tracking-[0.01em]">
+          <span className="text-[11px] font-medium text-ink-subtle tracking-[0.01em] group/repo">
             {issue.repo_full_name}
+            <button
+              onClick={async (e) => { e.stopPropagation();
+                const res = await dismissRepo(issue.repo_full_name);
+                showToast?.(res?.message || `Dismissed from ${issue.repo_full_name}`, "success");
+              }}
+              className="ml-1 text-[9px] text-ink-tertiary opacity-0 group-hover/repo:opacity-100 hover:text-error transition-opacity bg-transparent border-none cursor-pointer"
+              title="Dismiss all issues from this repo"
+            >
+              ✕ all
+            </button>
           </span>
+
+          {issue.claimed && (
+            <Badge className="bg-warning/15 text-warning">Claimed</Badge>
+          )}
 
           {issue.language && (
             <Badge className="bg-primary/10 text-primary-hover">{issue.language}</Badge>
@@ -199,6 +264,33 @@ export default function IssueCard({ issue, onTriageClick, showToast, onDismiss }
           >
             {issue.bookmarked ? "★ Saved" : "☆ Save"}
           </button>
+
+          <button
+            onClick={handleClaim}
+            className={`text-xs font-medium px-[8px] py-[3px] rounded-sm transition-colors
+              ${issue.claimed
+                ? "text-warning bg-warning/10"
+                : "text-ink-tertiary hover:text-warning hover:bg-warning/8"
+              }`}
+          >
+            {issue.claimed ? "✓ Claimed" : "○ Claim"}
+          </button>
+
+          {issue.status === "pending" && (
+            <button
+              onClick={handleTriage}
+              disabled={triaging}
+              className="text-xs font-medium px-[8px] py-[3px] rounded-sm text-primary hover:bg-primary/10 transition-colors border border-primary/30 disabled:opacity-40"
+            >
+              {triaging ? "..." : "Triage"}
+            </button>
+          )}
+
+          {(issue.status === "extracting" || issue.status === "triaging") && (
+            <span className="text-xs font-medium px-[8px] py-[3px] rounded-sm text-ink-tertiary italic">
+              {issue.status === "extracting" ? "Extracting…" : "Triaging…"}
+            </span>
+          )}
 
           {issue.status === "complete" && issue.triage && (
             <button
