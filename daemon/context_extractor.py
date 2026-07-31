@@ -96,49 +96,59 @@ def extract_repo_context(repo_clone_url: str) -> tuple[list[dict[str, str]], lis
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
-    with httpx.Client(headers=headers, timeout=30.0) as client:
-        repo_resp = client.get(f"https://api.github.com/repos/{owner}/{repo}")
-        if repo_resp.status_code != 200:
-            logger.warning("Failed to fetch repo info for %s/%s: HTTP %d", owner, repo, repo_resp.status_code)
-            return [], []
-        repo_data = repo_resp.json()
-        default_branch = repo_data.get("default_branch", "main")
+    try:
+        with httpx.Client(headers=headers, timeout=15.0) as client:
+            repo_resp = client.get(f"https://api.github.com/repos/{owner}/{repo}")
+            if repo_resp.status_code != 200:
+                logger.warning("Failed to fetch repo info for %s/%s: HTTP %d", owner, repo, repo_resp.status_code)
+                return [], []
+            repo_data = repo_resp.json()
+            default_branch = repo_data.get("default_branch", "main")
 
-        tree_resp = client.get(f"https://api.github.com/repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1")
-        if tree_resp.status_code != 200:
-            return [], []
-
-        tree = tree_resp.json().get("tree", [])
-
-        candidates = []
-        for entry in tree[:MAX_TREE_ENTRIES]:
-            if entry.get("type") != "blob":
-                continue
-            path = entry.get("path", "")
-            ext = Path(path).suffix.lower()
-            if ext not in SOURCE_EXTENSIONS or _should_skip_path(path):
-                continue
-            candidates.append(path)
-
-        candidates.sort(key=lambda p: (p.count("/"), len(p)))
-        selected = candidates[:3]
-
-        context = []
-        for path in selected:
-            content_resp = client.get(
-                f"https://api.github.com/repos/{owner}/{repo}/contents/{path}",
-                params={"ref": default_branch},
+            tree_resp = client.get(
+                f"https://api.github.com/repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1"
             )
-            if content_resp.status_code != 200:
-                continue
-            content_data = content_resp.json()
-            if content_data.get("encoding") != "base64":
-                continue
-            raw = base64.b64decode(content_data.get("content", ""))
-            decoded = raw[: settings.max_file_bytes].decode("utf-8", errors="replace")
-            context.append({"path": path, "content": decoded})
+            if tree_resp.status_code != 200:
+                logger.warning("Tree fetch failed for %s/%s: HTTP %d", owner, repo, tree_resp.status_code)
+                return [], []
+            tree_data = tree_resp.json()
+            if tree_data.get("truncated"):
+                logger.warning("Git tree truncated for %s/%s — repo too large, skipping context", owner, repo)
+                return [], []
 
-        logger.info(
-            "Extracted context from %s: %d files (%d candidates)", repo_clone_url, len(context), len(candidates)
-        )
-        return context, candidates
+            tree = tree_data.get("tree", [])
+            candidates = []
+            for entry in tree[:MAX_TREE_ENTRIES]:
+                if entry.get("type") != "blob":
+                    continue
+                path = entry.get("path", "")
+                ext = Path(path).suffix.lower()
+                if ext not in SOURCE_EXTENSIONS or _should_skip_path(path):
+                    continue
+                candidates.append(path)
+
+            candidates.sort(key=lambda p: (p.count("/"), len(p)))
+            selected = candidates[:3]
+
+            context = []
+            for path in selected:
+                content_resp = client.get(
+                    f"https://api.github.com/repos/{owner}/{repo}/contents/{path}",
+                    params={"ref": default_branch},
+                )
+                if content_resp.status_code != 200:
+                    continue
+                content_data = content_resp.json()
+                if content_data.get("encoding") != "base64":
+                    continue
+                raw = base64.b64decode(content_data.get("content", ""))
+                decoded = raw[: settings.max_file_bytes].decode("utf-8", errors="replace")
+                context.append({"path": path, "content": decoded})
+
+            logger.info(
+                "Extracted context from %s: %d files (%d candidates)", repo_clone_url, len(context), len(candidates)
+            )
+            return context, candidates
+    except Exception:
+        logger.exception("extract_repo_context failed for %s/%s — triage will run without file context", owner, repo)
+        return [], []

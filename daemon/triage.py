@@ -88,8 +88,8 @@ SECTION_PATTERN = re.compile(
 )
 
 VARIANT_RE = re.compile(
-    r"VARIANT_[A-C]:\s*(.*?)(?=\nVARIANT_[A-C]:|\Z)",
-    re.DOTALL,
+    r"(?:^|\n)\s*(?:VARIANT[_ ]?)?[A-C]:\s*(.*?)(?=\n\s*(?:VARIANT[_ ]?)?[A-C]:|\Z)",
+    re.DOTALL | re.IGNORECASE,
 )
 
 
@@ -211,10 +211,6 @@ class TriageEngine:
     def _parse_variants(text: str) -> list[str]:
         matches = VARIANT_RE.findall(text)
         variants = [m.strip() for m in matches if m.strip()]
-        if len(variants) < 3:
-            while len(variants) < 3:
-                if variants:
-                    variants.append(variants[-1])
-                else:
-                    variants.append(text.strip() if text.strip() else "")
-        return variants[:3]
+        if not variants and text.strip():
+            variants = [text.strip()]
+        return variants
