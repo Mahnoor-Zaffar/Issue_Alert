@@ -88,6 +88,7 @@ def _passes_quality_gate(issue: dict[str, Any]) -> bool:
     body = (issue.get("body") or "").strip()
     title = (issue.get("title") or "").strip()
     github_id = issue.get("github_id", "?")
+    title_lower = title.lower()
 
     if not body and len(title) < 15:
         logger.info("Skipping issue %s — no body and short title: %r", github_id, title)
@@ -97,10 +98,39 @@ def _passes_quality_gate(issue: dict[str, Any]) -> bool:
         logger.info("Skipping issue %s — body too short (%d chars)", github_id, len(body))
         return False
 
+    tracking_signals = [
+        "[tracking]",
+        "[tracker]",
+        "[epic]",
+        "[roadmap]",
+        "[meta]",
+        "tracking issue",
+        "umbrella issue",
+        "master issue",
+        "parent issue",
+    ]
+    if any(s in title_lower for s in tracking_signals):
+        logger.info("Skipping issue %s — tracking/epic/meta issue", github_id)
+        return False
+
+    vague_titles = {"update", "issue", "todo", "refactor", "cleanup", "misc", "changes", "stuff"}
+    title_words = set(title_lower.split())
+    if len(body) < 40 and len(title_words - vague_titles) <= 2:
+        logger.info("Skipping issue %s — vague title + short body", github_id)
+        return False
+
     spam_signals = ["http://", "https://", "buy ", "free ", "click here"]
     body_lower = body.lower()
     if any(signal in body_lower for signal in spam_signals) and len(body) < 100:
         logger.info("Skipping issue %s — looks like spam", github_id)
+        return False
+
+    body_no_code = body_lower
+    for match in __import__("re").finditer(r"```[\s\S]*?```", body_lower):
+        body_no_code = body_no_code.replace(match.group(), "")
+    words = body_no_code.split()
+    if len(words) < 8 and "?" not in title and "?" not in body_lower:
+        logger.info("Skipping issue %s — body is mostly code with no explanation", github_id)
         return False
 
     return True
