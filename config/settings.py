@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     llm_base_url: str = "https://openrouter.ai/api/v1"
     database_path: Path = Path("./data/triage.db")
-    poll_interval_seconds: int = 300
+    poll_interval_seconds: int = 1800
     issue_discovery_window_minutes: int = 10080
     max_issue_comments: int = 3
     max_file_bytes: int = 20000

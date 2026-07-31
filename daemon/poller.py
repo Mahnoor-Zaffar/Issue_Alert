@@ -342,22 +342,30 @@ class GitHubPoller:
                 results.append(issue)
         return results
 
+    _BATCH_SIZE = 15
+
     async def fetch_priority_issues(self) -> list[dict[str, Any]]:
         cutoff = freshness_cutoff_utc()
         repos = get_priority_repos()
+        if not hasattr(self, "_batch_idx"):
+            self._batch_idx = 0
+        batch_start = self._batch_idx % max(len(repos), 1)
+        batch_repos = repos[batch_start : batch_start + self._BATCH_SIZE]
+        self._batch_idx = (self._batch_idx + len(batch_repos)) % max(len(repos), 1)
+
         cooldown_seconds = settings.poll_interval_seconds * 3
         now = time.monotonic()
         all_issues: list[dict[str, Any]] = []
         if not hasattr(self, "_last_priority_poll"):
             self._last_priority_poll: dict[str, float] = {}
-        for r in repos:
+        for r in batch_repos:
             is_high = bool(r.get("is_high_priority"))
             if not is_high:
                 last = self._last_priority_poll.get(r["full_name"], 0)
                 if now - last < cooldown_seconds:
                     continue
             self._last_priority_poll[r["full_name"]] = now
-            max_pages = 3 if is_high else 1
+            max_pages = 2 if is_high else 1
             repo_issues = await self._fetch_repo_issues(r["full_name"], cutoff, max_pages, is_high)
             all_issues.extend(repo_issues)
         if all_issues:
