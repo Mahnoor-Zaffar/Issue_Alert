@@ -1,4 +1,5 @@
 import json
+import math
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -179,6 +180,147 @@ def compute_score(issue: dict[str, Any]) -> float:
         score -= 5
 
     return round(score, 2)
+
+
+def compute_top_pick_score(issue: dict[str, Any]) -> float:
+    stars = issue.get("repo_stars") or 0
+    prestige = min(math.log10(max(stars, 10)) / 5.0, 1.0)
+
+    labels = issue.get("labels") or []
+    if isinstance(labels, str):
+        labels = json.loads(labels)
+    label_lower = [label.lower() for label in labels]
+    label_score = 0.4
+    if "good first issue" in label_lower:
+        label_score = 1.0
+    elif "help wanted" in label_lower:
+        label_score = 0.9
+    elif "bug" in label_lower:
+        label_score = 0.7
+    elif "enhancement" in label_lower or "feature" in label_lower:
+        label_score = 0.6
+
+    diff = (issue.get("difficulty") or "").lower()
+    difficulty_bonus = 1.0
+    if diff == "easy":
+        difficulty_bonus = 1.3
+    elif diff == "hard":
+        difficulty_bonus = 0.7
+
+    comments = issue.get("comments") or 0
+    freshness = max(0.0, 1.0 - comments * 0.05)
+
+    body_len = len((issue.get("body") or "").strip())
+    quality = min(body_len / 500.0, 1.0)
+
+    return round(prestige * label_score * difficulty_bonus * freshness * (0.5 + 0.5 * quality) * 100, 1)
+
+
+def get_top_picks(limit: int = 3) -> list[dict[str, Any]]:
+    issues = list_issues(limit=500, offset=0)
+    for i in issues:
+        i["top_pick_score"] = compute_top_pick_score(i)
+    issues = [i for i in issues if i.get("top_pick_score", 0) > 0]
+    issues.sort(key=lambda i: i.get("top_pick_score", 0), reverse=True)
+    return issues[:limit]
+
+
+def generate_pr_description(issue_id: int) -> dict[str, Any] | None:
+    issue = get_issue(issue_id)
+    if not issue:
+        return None
+
+    triage = issue.get("triage") or {}
+    repo = issue["repo_full_name"]
+    title = issue["title"]
+    action_plan = triage.get("action_plan", "")
+    breakdown = triage.get("issue_breakdown", "")
+
+    owner, repo_name = repo.split("/")
+    safe_title = (
+        title.lower()[:40].replace(" ", "-").replace("[", "").replace("]", "").replace(":", "").replace("#", "")
+    )
+    branch = f"fix/{issue_id}-{safe_title}"
+
+    body_parts = ["## Summary", f"Fixes #{issue_id}: {title}", "", "## Root Cause"]
+    if breakdown:
+        body_parts.append(breakdown[:800])
+    elif issue.get("body"):
+        body_parts.append(issue["body"][:800])
+    else:
+        body_parts.append("_Run the triage to auto-generate this section_")
+    body_parts.append("")
+    body_parts.append("## Changes")
+    if action_plan:
+        body_parts.append(action_plan[:1000])
+    else:
+        body_parts.append("_Describe your changes here_")
+    body_parts.append("")
+    body_parts.append("## How to Test")
+    body_parts.append("_Describe how reviewers can verify this fix_")
+    body_parts.append("")
+    body_parts.append("Closes #" + str(issue.get("github_id", issue_id)))
+
+    pr_body = "\n".join(body_parts)
+    pr_title = f"fix: {title[:60]}"
+
+    return {
+        "owner": owner,
+        "repo": repo_name,
+        "branch_name": branch,
+        "pr_title": pr_title,
+        "pr_body": pr_body,
+        "compare_url": f"https://github.com/{repo}/compare/main...{branch}?expand=1",
+        "issue_url": issue["html_url"],
+    }
+
+
+def get_resume_summary(days: int = 7) -> dict[str, Any]:
+    with get_connection() as conn:
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+        claimed = conn.execute(
+            "SELECT i.repo_full_name, i.title, i.html_url, t.difficulty, t.pr_url, t.pr_status, i.claimed "
+            "FROM issues i LEFT JOIN triage_reports t ON t.issue_id = i.id "
+            "WHERE i.claimed = 1 AND i.updated_at >= ? "
+            "ORDER BY i.repo_full_name",
+            (since,),
+        ).fetchall()
+
+        triaged = conn.execute("SELECT COUNT(*) FROM triage_reports WHERE created_at >= ?", (since,)).fetchone()[0]
+
+    contributions = [dict(r) for r in claimed]
+
+    repos = {}
+    for c in contributions:
+        r = c["repo_full_name"]
+        if r not in repos:
+            repos[r] = []
+        repos[r].append(c)
+
+    md_lines = ["# YC Application — Open Source Contributions", ""]
+    md_lines.append(f"_Last {days} days_")
+    md_lines.append("")
+    md_lines.append(f"**Issues Claimed:** {len(contributions)}")
+    md_lines.append(f"**Issues Triaged:** {triaged}")
+    md_lines.append("")
+
+    for repo, issues in sorted(repos.items()):
+        md_lines.append(f"## [{repo}](https://github.com/{repo})")
+        md_lines.append("")
+        for idx, c in enumerate(issues, 1):
+            md_lines.append(f"{idx}. **[{c['title']}]({c['html_url']})** `{c.get('difficulty', 'N/A')}`")
+            if c.get("pr_url"):
+                md_lines.append(f"   - PR: [{c['pr_url']}]({c['pr_url']}) `{c.get('pr_status', 'open')}`")
+            md_lines.append("")
+        md_lines.append("")
+
+    return {
+        "markdown": "\n".join(md_lines),
+        "contributions": contributions,
+        "total_claimed": len(contributions),
+        "total_triaged": triaged,
+        "days": days,
+    }
 
 
 def insert_issue(issue: dict[str, Any]) -> int:

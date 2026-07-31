@@ -4,7 +4,7 @@ import IssueCard from "./components/IssueCard";
 import TriagePanel from "./components/TriagePanel";
 import Toast from "./components/Toast";
 import { useSSE } from "./useSSE";
-import { fetchIssues, fetchStats, fetchStatsHistory, triggerPoll, setBookmark, dismissIssue } from "./api";
+import { fetchIssues, fetchStats, fetchStatsHistory, triggerPoll, setBookmark, dismissIssue, fetchTopPicks, fetchResume } from "./api";
 
 const DIFFICULTY_OPTIONS = [
   { value: "", label: "All difficulties" },
@@ -140,6 +140,9 @@ export default function App() {
   const [filterPriority, setFilterPriority] = useState(initial.filterPriority);
   const [searchQuery, setSearchQuery] = useState(initial.searchQuery);
   const [sortBy, setSortBy] = useState(initial.sortBy);
+  const [topPicks, setTopPicks] = useState([]);
+  const [resumeMd, setResumeMd] = useState("");
+  const [showResume, setShowResume] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [savedSearches, setSavedSearches] = useState(() => {
@@ -291,6 +294,10 @@ export default function App() {
   useEffect(() => {
     fetchStatsHistory().then((d) => setStatsHistory(d.history || [])).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    fetchTopPicks(3).then((d) => setTopPicks(d.top_picks || [])).catch(() => {});
+  }, [issues.length]);
 
   useSSE({
     onIssueUpdate: useCallback((updated) => {
@@ -656,7 +663,38 @@ export default function App() {
           >
             🎲 Random
           </button>
+          <button
+            onClick={async () => {
+              try {
+                const d = await fetchResume(7);
+                setResumeMd(d.markdown || "");
+                setShowResume(true);
+                navigator.clipboard.writeText(d.markdown || "").then(() => showToast("Resume copied to clipboard!", "success"));
+              } catch { showToast("Failed to generate resume", "error"); }
+            }}
+            className="text-xs font-medium px-[8px] py-[4px] rounded-md bg-gradient-to-r from-success/10 to-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors cursor-pointer"
+          >
+            📄 YC Resume
+          </button>
         </div>
+
+        {topPicks.length > 0 && (
+          <div className="mb-6 p-4 bg-gradient-to-r from-yellow-50/5 to-amber-50/5 border border-yellow-200/20 rounded-lg">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-[15px] font-semibold tracking-[-0.01em] flex items-center gap-2">
+                <span>🏆</span> Top Picks for You
+              </h2>
+              <span className="text-[11px] text-ink-tertiary">
+                Ranked by repo prestige · label quality · difficulty
+              </span>
+            </div>
+            <div className="flex flex-col gap-[10px]">
+              {topPicks.map((issue) => (
+                <IssueCard key={`pick-${issue.id}`} issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} selectMode={false} selected={false} onToggleSelect={() => {}} />
+              ))}
+            </div>
+          </div>
+        )}
 
         {displayPriority.length > 0 && (
           <div className="mb-5">
@@ -703,6 +741,27 @@ export default function App() {
 
       {panelIssue && (
         <TriagePanel issue={panelIssue} onClose={() => setPanelIssue(null)} showToast={showToast} />
+      )}
+
+      {showResume && (
+        <div className="fixed inset-0 bg-black/60 z-50" onClick={() => setShowResume(false)} />
+      )}
+      {showResume && (
+        <div className="fixed top-0 right-0 w-[600px] max-w-[90vw] h-full bg-surface-1 border-l border-hairline z-50 flex flex-col shadow-2xl">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-hairline shrink-0">
+            <h2 className="text-[14px] font-semibold">📄 YC Resume (Last 7 Days)</h2>
+            <button onClick={() => setShowResume(false)} className="w-[28px] h-[28px] flex items-center justify-center rounded-md border border-hairline text-ink-tertiary hover:text-ink">✕</button>
+          </div>
+          <pre className="flex-1 overflow-y-auto p-5 text-[12px] text-ink-muted leading-relaxed whitespace-pre-wrap font-mono bg-canvas">{resumeMd}</pre>
+          <div className="px-5 py-3 border-t border-hairline shrink-0">
+            <button
+              onClick={() => { navigator.clipboard.writeText(resumeMd); showToast("Resume copied!", "success"); }}
+              className="text-xs font-medium px-[12px] py-[6px] rounded-md bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none"
+            >
+              📋 Copy Markdown
+            </button>
+          </div>
+        </div>
       )}
 
       <Toast message={toast.message} type={toast.type} action={toast.action} onClose={() => setToast({ message: "", type: "info", action: null })} />

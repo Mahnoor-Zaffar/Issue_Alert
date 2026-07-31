@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { reTriage, openPR, fetchPRDetails, setClaimed } from "../api";
+import { reTriage, openPR, fetchPRDetails, setClaimed, generatePR } from "../api";
 
 function Section({ title, children }) {
   return (
@@ -31,6 +31,8 @@ export default function TriagePanel({ issue, onClose, showToast }) {
   const [claiming, setClaiming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [variantIx, setVariantIx] = useState(0);
+  const [prGen, setPrGen] = useState(null);
+  const [prGenLoading, setPrGenLoading] = useState(false);
 
   const t = issue?.triage;
   if (!issue || !t) return null;
@@ -57,6 +59,21 @@ export default function TriagePanel({ issue, onClose, showToast }) {
       showToast?.(e?.message || "Re-triage failed", "error");
     }
     setRetriaging(false);
+  }, [issue.id, showToast]);
+
+  const handleGeneratePR = useCallback(async () => {
+    setPrGenLoading(true);
+    try {
+      const data = await generatePR(issue.id);
+      setPrGen(data);
+      navigator.clipboard.writeText(data.pr_body).then(() => {
+        showToast?.("PR description copied — push your branch then open the compare URL", "success");
+      });
+      window.open(data.compare_url, "_blank");
+    } catch (e) {
+      showToast?.(e?.message || "Failed to generate PR", "error");
+    }
+    setPrGenLoading(false);
   }, [issue.id, showToast]);
 
   const handleOpenPR = useCallback(async () => {
@@ -252,6 +269,13 @@ export default function TriagePanel({ issue, onClose, showToast }) {
 
           {/* Action buttons */}
           <div className="flex gap-2 pt-2 flex-wrap">
+            <button
+              onClick={handleGeneratePR}
+              disabled={prGenLoading}
+              className="text-xs font-medium px-[12px] py-[6px] rounded-md bg-success text-white hover:bg-success/90 transition-colors cursor-pointer border-none disabled:opacity-40"
+            >
+              {prGenLoading ? "Generating…" : "🚀 Generate PR"}
+            </button>
             <button
               onClick={handleClaimToggle}
               disabled={claiming}

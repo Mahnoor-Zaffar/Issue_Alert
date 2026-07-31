@@ -24,13 +24,16 @@ from db.store import (
     dismiss_repo_issues,
     enqueue_triage,
     enqueue_webhook,
+    generate_pr_description,
     get_issue,
     get_issues_updated_since,
     get_personal_stats,
     get_preferences,
     get_priority_repos,
+    get_resume_summary,
     get_stats,
     get_stats_history,
+    get_top_picks,
     list_issues,
     mark_issue_viewed,
     remove_priority_repo,
@@ -98,6 +101,11 @@ async def api_list_issues(
             difficulty=difficulty,
         )
     }
+
+
+@router.get("/api/issues/top-picks")
+async def api_top_picks(limit: int = 3):
+    return {"top_picks": get_top_picks(limit)}
 
 
 @router.get("/api/issues/{issue_id}")
@@ -583,6 +591,19 @@ async def api_github_webhook(request: Request):
         return {"status": "queued", "webhook_id": webhook_id}
 
     return {"status": "ignored", "action": action}
+
+
+@router.post("/api/issues/{issue_id}/generate-pr")
+async def api_generate_pr(issue_id: int):
+    result = generate_pr_description(issue_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Issue not found or not triaged")
+    return result
+
+
+@router.get("/api/stats/resume")
+async def api_resume(days: int = 7):
+    return get_resume_summary(days)
 
 
 @router.get("/api/events")

@@ -120,3 +120,15 @@ export function fetchRateLimit() {
 export function fetchDaemonLog(lines = 50) {
   return get(`/api/daemon-log?lines=${lines}`);
 }
+
+export function fetchTopPicks(limit = 3) {
+  return get(`/api/issues/top-picks?limit=${limit}`);
+}
+
+export function generatePR(issueId) {
+  return post(`/api/issues/${issueId}/generate-pr`);
+}
+
+export function fetchResume(days = 7) {
+  return get(`/api/stats/resume?days=${days}`);
+}
