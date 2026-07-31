@@ -736,6 +736,15 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
     pr_status = issue.pop("pr_status", None)
     pr_checked_at = issue.pop("pr_checked_at", None)
     claim_comment = issue.pop("claim_comment", None)
+    claim_variants = []
+    if claim_comment and claim_comment.startswith("["):
+        try:
+            claim_variants = json.loads(claim_comment)
+            claim_comment = claim_variants[0] if claim_variants else ""
+        except json.JSONDecodeError:
+            claim_variants = [claim_comment] if claim_comment else []
+    elif claim_comment:
+        claim_variants = [claim_comment]
     triage = None
     if issue.get("architecture_context") is not None:
         triage = {
@@ -748,6 +757,7 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
             "pr_status": pr_status,
             "pr_checked_at": pr_checked_at,
             "claim_comment": claim_comment,
+            "claim_variants": claim_variants,
         }
     else:
         issue.pop("architecture_context", None)

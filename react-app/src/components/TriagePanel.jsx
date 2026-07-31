@@ -30,13 +30,20 @@ export default function TriagePanel({ issue, onClose, showToast }) {
   const [retriageMsg, setRetriageMsg] = useState("");
   const [claiming, setClaiming] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [variantIx, setVariantIx] = useState(0);
 
   const t = issue?.triage;
   if (!issue || !t) return null;
 
   const prUrl = t.pr_url;
   const prStatus = t.pr_status;
-  const claimComment = t.claim_comment;
+  const claimVariants = t.claim_variants?.length ? t.claim_variants : (t.claim_comment ? [t.claim_comment] : []);
+  const claimComment = claimVariants[variantIx] || t.claim_comment || "";
+  const hasMultiple = claimVariants.length > 1;
+
+  const cycleVariant = useCallback(() => {
+    setVariantIx((prev) => (prev + 1) % claimVariants.length);
+  }, [claimVariants.length]);
 
   const handleReTriage = useCallback(async () => {
     setRetriaging(true);
@@ -158,7 +165,7 @@ export default function TriagePanel({ issue, onClose, showToast }) {
             <Section title="💬 Comment to Get Assigned">
               <div className="bg-success/5 border border-success/20 rounded-md p-3">
                 <p className="text-[13px] text-ink-muted leading-relaxed mb-2">{claimComment}</p>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={handleCopy}
                     className="text-xs font-medium px-[10px] py-[4px] rounded-md bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none"
@@ -171,6 +178,14 @@ export default function TriagePanel({ issue, onClose, showToast }) {
                   >
                     📋 Copy & Open
                   </button>
+                  {hasMultiple && (
+                    <button
+                      onClick={cycleVariant}
+                      className="text-xs font-medium px-[10px] py-[4px] rounded-md bg-surface-1 text-ink border border-hairline hover:bg-surface-2 transition-colors cursor-pointer"
+                    >
+                      🔄 Try another ({variantIx + 1}/{claimVariants.length})
+                    </button>
+                  )}
                 </div>
               </div>
             </Section>
