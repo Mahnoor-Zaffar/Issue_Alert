@@ -27,6 +27,7 @@ MIGRATIONS = [
     "ALTER TABLE triage_reports ADD COLUMN pr_checked_at TEXT",
     "ALTER TABLE issues ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE triage_reports ADD COLUMN claim_comment TEXT",
+    "ALTER TABLE priority_repos ADD COLUMN is_high_priority INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -251,15 +252,14 @@ def mark_issue_viewed(issue_id: int) -> bool:
 
 
 def purge_stale_issues() -> int:
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff = _freshness_cutoff_iso()
     with get_connection() as conn:
         cursor = conn.execute(
             """
             DELETE FROM issues
             WHERE bookmarked = 0
-              AND (viewed_at IS NOT NULL
-                OR github_created_at IS NULL
-                OR github_created_at < ?)
+              AND github_created_at IS NOT NULL
+              AND github_created_at < ?
             """,
             (cutoff,),
         )
@@ -766,7 +766,9 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
 def get_priority_repos() -> list[dict[str, Any]]:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, owner, repo, full_name, added_at FROM priority_repos ORDER BY added_at"
+            "SELECT id, owner, repo, full_name, added_at, "
+            "COALESCE(is_high_priority, 0) AS is_high_priority "
+            "FROM priority_repos ORDER BY is_high_priority DESC, added_at"
         ).fetchall()
         return [dict(r) for r in rows]
 

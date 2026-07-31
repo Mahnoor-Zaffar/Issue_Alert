@@ -61,6 +61,7 @@ def build_search_query(
     parts = [
         "is:issue",
         "is:open",
+        "-linked:pr",
         format_created_filter(cutoff),
     ]
     if settings.max_issue_comments == 0:
@@ -80,6 +81,7 @@ def build_priority_query(full_name: str, cutoff: datetime | None = None) -> str:
     parts = [
         "is:issue",
         "is:open",
+        "-linked:pr",
         format_created_filter(cutoff),
         f"repo:{full_name}",
     ]
@@ -91,8 +93,9 @@ def build_priority_query(full_name: str, cutoff: datetime | None = None) -> str:
 def passes_claim_verification(
     item: dict[str, Any],
     cutoff: datetime | None = None,
+    *,
+    is_priority: bool = False,
 ) -> bool:
-    """Secondary check: issue is open, unassigned, uncommented, and unclaimed."""
     cutoff = cutoff or freshness_cutoff_utc()
 
     if item.get("state") != "open":
@@ -101,8 +104,9 @@ def passes_claim_verification(
     if "pull_request" in item:
         return False
 
-    if item.get("comments", 0) > settings.max_issue_comments:
-        return False
+    if not is_priority:
+        if item.get("comments", 0) > settings.max_issue_comments:
+            return False
 
     assignees = item.get("assignees") or []
     if assignees or item.get("assignee"):
@@ -111,7 +115,7 @@ def passes_claim_verification(
     body = item.get("body") or ""
     if _LINKED_PR_BODY_RE.search(body):
         return False
-    if _CLAIMED_BODY_RE.search(body):
+    if not is_priority and _CLAIMED_BODY_RE.search(body):
         return False
 
     created_at = item.get("created_at")
@@ -319,29 +323,43 @@ class GitHubPoller:
 
         return normalized, total_count, None
 
+    async def _fetch_repo_issues(
+        self, full_name: str, cutoff: datetime, max_pages: int, is_priority: bool
+    ) -> list[dict[str, Any]]:
+        query = build_priority_query(full_name, cutoff)
+        items, _, ok = await self._search_pages(query, max_pages=max_pages)
+        if not ok:
+            return []
+        results: list[dict[str, Any]] = []
+        for item in items:
+            passed = passes_claim_verification(item, cutoff, is_priority=is_priority)
+            if not passed:
+                continue
+            issue = await self._normalize_issue(item, is_priority=True)
+            if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):
+                issue["is_priority"] = True
+                issue["is_high_priority"] = is_priority
+                results.append(issue)
+        return results
+
     async def fetch_priority_issues(self) -> list[dict[str, Any]]:
         cutoff = freshness_cutoff_utc()
         repos = get_priority_repos()
-        cooldown = settings.poll_interval_seconds * 3
+        cooldown_seconds = settings.poll_interval_seconds * 3
         now = time.monotonic()
         all_issues: list[dict[str, Any]] = []
+        if not hasattr(self, "_last_priority_poll"):
+            self._last_priority_poll: dict[str, float] = {}
         for r in repos:
-            last = getattr(self, "_last_priority_poll", {}).get(r["full_name"], 0)
-            if now - last < cooldown:
-                continue
-            if not hasattr(self, "_last_priority_poll"):
-                self._last_priority_poll = {}
+            is_high = bool(r.get("is_high_priority"))
+            if not is_high:
+                last = self._last_priority_poll.get(r["full_name"], 0)
+                if now - last < cooldown_seconds:
+                    continue
             self._last_priority_poll[r["full_name"]] = now
-            query = build_priority_query(r["full_name"], cutoff)
-            items, _, ok = await self._search_pages(query, max_pages=1)
-            if not ok:
-                continue
-            for item in items:
-                if passes_claim_verification(item, cutoff):
-                    issue = await self._normalize_issue(item, is_priority=True)
-                    if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):
-                        issue["is_priority"] = True
-                        all_issues.append(issue)
+            max_pages = 3 if is_high else 1
+            repo_issues = await self._fetch_repo_issues(r["full_name"], cutoff, max_pages, is_high)
+            all_issues.extend(repo_issues)
         if all_issues:
             logger.info("Found %d priority issue(s)", len(all_issues))
         return all_issues

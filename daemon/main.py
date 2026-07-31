@@ -190,13 +190,28 @@ async def _triage_single(issue_id: int, triage_engine: TriageEngine, sem: asynci
         return True
 
 
-async def process_triage_queue(poller: GitHubPoller, triage_engine: TriageEngine) -> int:
-    issue_ids = get_pending_triage_requests()
-    if not issue_ids:
-        return 0
-    sem = asyncio.Semaphore(3)
-    results = await asyncio.gather(*[_triage_single(iid, triage_engine, sem) for iid in issue_ids])
-    return sum(1 for r in results if r)
+_TRIAGE_QUEUE_LOCK = asyncio.Lock()
+
+
+async def process_triage_queue(triage_engine: TriageEngine) -> int:
+    async with _TRIAGE_QUEUE_LOCK:
+        issue_ids = get_pending_triage_requests()
+        if not issue_ids:
+            return 0
+        sem = asyncio.Semaphore(3)
+        results = await asyncio.gather(*[_triage_single(iid, triage_engine, sem) for iid in issue_ids])
+        return sum(1 for r in results if r)
+
+
+async def triage_queue_worker(triage_engine: TriageEngine) -> None:
+    """Continuously drain the triage queue so clicks are processed immediately."""
+    while True:
+        processed = 0
+        try:
+            processed = await process_triage_queue(triage_engine)
+        except Exception:
+            logger.exception("Triage queue worker error")
+        await asyncio.sleep(1 if processed else 3)
 
 
 async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
@@ -204,21 +219,35 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
     if purged:
         logger.info("Purged %d stale or viewed issue(s) from feed", purged)
 
-    await process_triage_queue(poller, triage_engine)
     await process_webhooks(poller, triage_engine)
 
-    priority_issues = await poller.fetch_priority_issues()
+    from daemon.poller import freshness_cutoff_utc
+    from db.store import get_priority_repos
+
+    cutoff = freshness_cutoff_utc()
+    all_repos = get_priority_repos()
+    high_priority_repos = [r for r in all_repos if r.get("is_high_priority")]
+
     priority_new = 0
-    for issue_data in priority_issues:
+    for r in high_priority_repos:
+        for issue_data in await poller._fetch_repo_issues(r["full_name"], cutoff, max_pages=3, is_priority=True):
+            if is_issue_seen(issue_data["github_id"]):
+                continue
+            if await process_issue(issue_data, triage_engine, notify=True):
+                priority_new += 1
+
+    all_priority = await poller.fetch_priority_issues()
+    for issue_data in all_priority:
         if is_issue_seen(issue_data["github_id"]):
             continue
-        if not matches_label_preference(issue_data, get_preferences()):
-            mark_issue_seen(issue_data["github_id"])
-            continue
-        if not _passes_quality_gate(issue_data):
-            mark_issue_seen(issue_data["github_id"])
-            continue
-        if await process_issue(issue_data, triage_engine, notify=True):
+        if not issue_data.get("is_high_priority"):
+            if not matches_label_preference(issue_data, get_preferences()):
+                mark_issue_seen(issue_data["github_id"])
+                continue
+            if not _passes_quality_gate(issue_data):
+                mark_issue_seen(issue_data["github_id"])
+                continue
+        if await process_issue(issue_data, triage_engine, notify=(not issue_data.get("is_high_priority"))):
             priority_new += 1
 
     issues, total_count, search_note = await poller.fetch_issues()
@@ -408,10 +437,14 @@ async def run() -> None:
     triage_engine = TriageEngine()
 
     logger.info(
-        "Daemon started — polling every %ds (discovery window: last %d minutes)",
+        "Daemon started — polling every %ds (discovery window: last %d minutes) — db=%s token=%s",
         settings.poll_interval_seconds,
         settings.issue_discovery_window_minutes,
+        str(settings.database_path.resolve()),
+        "present" if settings.github_token else "MISSING",
     )
+
+    triage_task = asyncio.create_task(triage_queue_worker(triage_engine))
 
     try:
         while True:
@@ -428,6 +461,7 @@ async def run() -> None:
 
             await interruptible_sleep(settings.poll_interval_seconds)
     finally:
+        triage_task.cancel()
         await poller.close()
         release_daemon_lock()
 

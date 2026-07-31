@@ -23,9 +23,9 @@ class Settings(BaseSettings):
     api_port: int = 8000
     min_repo_stars: int = 1000
     github_webhook_secret: str = ""
-    search_per_page: int = 30
-    search_max_pages: int = 5
-    search_lookback_minutes: int = 2880
+    search_per_page: int = 100
+    search_max_pages: int = 3
+    search_lookback_minutes: int = 10080
 
 
 settings = Settings()

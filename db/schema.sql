@@ -84,11 +84,12 @@ CREATE INDEX IF NOT EXISTS idx_issues_github_id ON issues(github_id);
 CREATE INDEX IF NOT EXISTS idx_webhook_queue_processed ON webhook_queue(processed);
 
 CREATE TABLE IF NOT EXISTS priority_repos (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner       TEXT NOT NULL,
-    repo        TEXT NOT NULL,
-    full_name   TEXT NOT NULL UNIQUE,
-    added_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner            TEXT NOT NULL,
+    repo             TEXT NOT NULL,
+    full_name        TEXT NOT NULL UNIQUE,
+    added_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    is_high_priority INTEGER NOT NULL DEFAULT 0
 );
 
 INSERT OR IGNORE INTO daemon_state (id) VALUES (1);
