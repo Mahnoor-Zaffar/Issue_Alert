@@ -252,7 +252,7 @@ def mark_issue_viewed(issue_id: int) -> bool:
 
 
 def purge_stale_issues() -> int:
-    cutoff = _freshness_cutoff_iso()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=8)).strftime("%Y-%m-%d")
     with get_connection() as conn:
         cursor = conn.execute(
             """

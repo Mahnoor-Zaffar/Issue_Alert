@@ -83,24 +83,21 @@ async def api_list_issues(
     claimed_only: bool = False,
     is_priority: bool | None = None,
     difficulty: str | None = None,
-    mark_viewed: bool = True,
 ):
-    issues = list_issues(
-        limit=limit,
-        offset=offset,
-        language=language,
-        status=status,
-        label=label,
-        show_dismissed=show_dismissed,
-        bookmarked_only=bookmarked_only,
-        claimed_only=claimed_only,
-        is_priority=is_priority,
-        difficulty=difficulty,
-    )
-    if not bookmarked_only and not show_dismissed:
-        for issue in issues:
-            mark_issue_viewed(issue["id"])
-    return {"issues": issues}
+    return {
+        "issues": list_issues(
+            limit=limit,
+            offset=offset,
+            language=language,
+            status=status,
+            label=label,
+            show_dismissed=show_dismissed,
+            bookmarked_only=bookmarked_only,
+            claimed_only=claimed_only,
+            is_priority=is_priority,
+            difficulty=difficulty,
+        )
+    }
 
 
 @router.get("/api/issues/{issue_id}")

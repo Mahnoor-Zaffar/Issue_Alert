@@ -13,7 +13,6 @@ from daemon.context_extractor import extract_repo_context
 from daemon.notifier import notify_new_issue
 from daemon.poller import (
     GitHubPoller,
-    matches_label_preference,
     matches_language_preference,
     passes_claim_verification,
 )
@@ -221,94 +220,29 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
 
     await process_webhooks(poller, triage_engine)
 
-    from daemon.poller import freshness_cutoff_utc
-    from db.store import get_priority_repos
-
-    cutoff = freshness_cutoff_utc()
-    all_repos = get_priority_repos()
-    high_priority_repos = [r for r in all_repos if r.get("is_high_priority")]
-
-    priority_new = 0
-    for r in high_priority_repos:
-        for issue_data in await poller._fetch_repo_issues(r["full_name"], cutoff, max_pages=3, is_priority=True):
-            if is_issue_seen(issue_data["github_id"]):
-                continue
-            if await process_issue(issue_data, triage_engine, notify=True):
-                priority_new += 1
-
     all_priority = await poller.fetch_priority_issues()
+    priority_new = 0
+
     for issue_data in all_priority:
         if is_issue_seen(issue_data["github_id"]):
             continue
         if not issue_data.get("is_high_priority"):
-            if not matches_label_preference(issue_data, get_preferences()):
-                mark_issue_seen(issue_data["github_id"])
-                continue
-            if not _passes_quality_gate(issue_data):
-                mark_issue_seen(issue_data["github_id"])
-                continue
-        if await process_issue(issue_data, triage_engine, notify=(not issue_data.get("is_high_priority"))):
-            priority_new += 1
-
-    issues, total_count, search_note = await poller.fetch_issues()
-    new_count = 0
-    skipped_seen = 0
-
-    for issue_data in issues:
-        if is_issue_seen(issue_data["github_id"]):
-            skipped_seen += 1
             continue
-
         if not matches_language_preference(issue_data, get_preferences()):
             mark_issue_seen(issue_data["github_id"])
-            logger.debug(
-                "Skipping issue %s — language %s not in preferences",
-                issue_data["github_id"],
-                issue_data.get("language"),
-            )
             continue
-
-        if not matches_label_preference(issue_data, get_preferences()):
-            mark_issue_seen(issue_data["github_id"])
-            logger.debug(
-                "Skipping issue %s — labels %s not in preferences",
-                issue_data["github_id"],
-                issue_data.get("labels"),
-            )
-            continue
-
         if not _passes_quality_gate(issue_data):
             mark_issue_seen(issue_data["github_id"])
             continue
+        if await process_issue(issue_data, triage_engine, notify=True):
+            priority_new += 1
 
-        if await process_issue(issue_data, triage_engine, notify=False):
-            new_count += 1
-
-    if search_note:
-        message = search_note
-    elif len(issues) == 0 and new_count == 0:
-        comment_note = (
-            "zero comments" if settings.max_issue_comments == 0 else f"≤{settings.max_issue_comments} comments"
-        )
-        message = (
-            f"No fresh unclaimed issues in the last {settings.issue_discovery_window_minutes} minutes ({comment_note})"
-        )
-    elif skipped_seen:
-        message = f"{skipped_seen} already seen"
-    else:
-        message = None
-
-    update_poll_state(len(issues), new_count, total_count, message)
-    parts = [
-        f"{len(issues)} fetched, {new_count} new",
-        f"{skipped_seen} already seen" if skipped_seen else None,
-        f"{priority_new} priority" if priority_new else None,
-    ]
-    detail = ", ".join(p for p in parts if p)
+    update_poll_state(len(all_priority), priority_new, 0, None)
     logger.info(
-        "Poll cycle complete: %s (total on GitHub: %d)",
-        detail,
-        total_count,
+        "Poll cycle complete: %d fetched, %d new, %d high-priority",
+        len(all_priority),
+        priority_new,
+        priority_new,
     )
 
     record_daily_stats()
