@@ -51,8 +51,8 @@ def _visible_issue_clauses(
 
     if not show_dismissed:
         clauses.append("i.dismissed = 0")
-    if not bookmarked_only:
-        clauses.append("i.viewed_at IS NULL")
+    if bookmarked_only:
+        clauses.append("i.bookmarked = 1")
     if not include_stale:
         clauses.append("(i.github_created_at IS NOT NULL AND i.github_created_at >= ?)")
         params.append(_freshness_cutoff_iso())
@@ -737,14 +737,15 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
     pr_checked_at = issue.pop("pr_checked_at", None)
     claim_comment = issue.pop("claim_comment", None)
     claim_variants = []
-    if claim_comment and claim_comment.startswith("["):
-        try:
-            claim_variants = json.loads(claim_comment)
-            claim_comment = claim_variants[0] if claim_variants else ""
-        except json.JSONDecodeError:
-            claim_variants = [claim_comment] if claim_comment else []
-    elif claim_comment:
-        claim_variants = [claim_comment]
+    if claim_comment:
+        if claim_comment.startswith("["):
+            try:
+                claim_variants = json.loads(claim_comment)
+                claim_comment = claim_variants[0] if claim_variants else ""
+            except json.JSONDecodeError:
+                claim_variants = [claim_comment]
+        else:
+            claim_variants = [claim_comment]
     triage = None
     if issue.get("architecture_context") is not None:
         triage = {
