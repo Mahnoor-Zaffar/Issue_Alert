@@ -13,6 +13,7 @@ from daemon.context_extractor import extract_repo_context
 from daemon.notifier import notify_new_issue
 from daemon.poller import (
     GitHubPoller,
+    matches_label_preference,
     matches_language_preference,
     passes_claim_verification,
 )
@@ -267,12 +268,42 @@ async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
         if await process_issue(issue_data, triage_engine, notify=True):
             priority_new += 1
 
-    update_poll_state(len(all_priority), priority_new, 0, None)
+    issues, total_count, search_note = await poller.fetch_issues()
+    new_count = 0
+    skipped_seen = 0
+
+    for issue_data in issues:
+        if is_issue_seen(issue_data["github_id"]):
+            skipped_seen += 1
+            continue
+        if not matches_label_preference(issue_data, get_preferences()):
+            mark_issue_seen(issue_data["github_id"])
+            continue
+        if not matches_language_preference(issue_data, get_preferences()):
+            mark_issue_seen(issue_data["github_id"])
+            continue
+        if not _passes_quality_gate(issue_data):
+            mark_issue_seen(issue_data["github_id"])
+            continue
+        if await process_issue(issue_data, triage_engine, notify=False):
+            new_count += 1
+
+    message = search_note or (
+        f"No fresh issues in the last {settings.issue_discovery_window_minutes} minutes"
+        if not issues and not new_count
+        else None
+    )
+
+    update_poll_state(len(issues), new_count, total_count, message)
     logger.info(
-        "Poll cycle complete: %d fetched, %d new, %d high-priority",
+        "Poll cycle complete: %d priority fetched, %d priority new | "
+        "%d general fetched, %d general new, %d skipped (%s)",
         len(all_priority),
         priority_new,
-        priority_new,
+        len(issues),
+        new_count,
+        skipped_seen,
+        f"total on GitHub: {total_count}" if total_count else "search skipped",
     )
 
     record_daily_stats()

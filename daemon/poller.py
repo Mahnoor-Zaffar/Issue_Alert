@@ -342,7 +342,7 @@ class GitHubPoller:
                 results.append(issue)
         return results
 
-    _BATCH_SIZE = 15
+    _BATCH_SIZE = 10
 
     async def fetch_priority_issues(self) -> list[dict[str, Any]]:
         cutoff = freshness_cutoff_utc()
@@ -365,7 +365,7 @@ class GitHubPoller:
                 if now - last < cooldown_seconds:
                     continue
             self._last_priority_poll[r["full_name"]] = now
-            max_pages = 2 if is_high else 1
+            max_pages = 1 if is_high else 1
             repo_issues = await self._fetch_repo_issues(r["full_name"], cutoff, max_pages, is_high)
             all_issues.extend(repo_issues)
         if all_issues:
