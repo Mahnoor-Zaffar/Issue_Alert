@@ -333,7 +333,7 @@ def insert_issue(issue: dict[str, Any]) -> int:
     with get_connection() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO issues (
+            INSERT OR IGNORE INTO issues (
                 github_id, title, body, html_url, repo_full_name,
                 repo_clone_url, labels, language, repo_stars, score,
                 comments, state, status, github_created_at, created_at,
@@ -360,7 +360,11 @@ def insert_issue(issue: dict[str, Any]) -> int:
                 issue.get("is_priority", False),
             ),
         )
-        return cursor.lastrowid
+        if cursor.lastrowid:
+            return cursor.lastrowid
+        # Already exists — return existing id
+        row = conn.execute("SELECT id FROM issues WHERE github_id = ?", (issue["github_id"],)).fetchone()
+        return row["id"] if row else 0
 
 
 def update_issue_status(
