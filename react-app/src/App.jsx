@@ -467,6 +467,7 @@ export default function App() {
 
   const displayPriority = sortIssuesWithSaved(filterBySearch(priorityIssues), sortBy);
   const displayIssues = sortIssuesWithSaved(filterBySearch(issues), sortBy);
+  const allIssues = [...displayPriority, ...displayIssues];
 
   return (
     <div className="flex min-h-screen">
@@ -712,25 +713,16 @@ export default function App() {
         )}
 
         {displayPriority.length > 0 && (
-          <div className="mb-5">
-            <h2 className="text-[15px] font-semibold tracking-[-0.01em] flex items-center gap-2 mb-3">
+          <div className="mb-3 p-3 bg-warning/5 border border-warning/20 rounded-lg">
+            <p className="text-[12px] text-warning flex items-center gap-2">
               <span className="w-[6px] h-[6px] rounded-full bg-warning animate-pulse" />
-              Priority Issues
-            </h2>
-            <div className="flex flex-col gap-[10px]">
-              {displayPriority.map((issue) => (
-                <IssueCard key={issue.id} issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} selectMode={selectMode} selected={selectedIds.has(issue.id)} onToggleSelect={toggleSelect} />
-              ))}
-            </div>
+              {displayPriority.length} priority issues from your orgs — shown first
+            </p>
           </div>
         )}
 
-        <h2 className="text-[15px] font-semibold tracking-[-0.01em] mb-3 text-ink-muted">
-          General Feed
-        </h2>
-
         <div className="flex flex-col gap-[10px]">
-          {displayIssues.length === 0 ? (
+          {allIssues.length === 0 ? (
             <div className="text-center py-16 text-ink-subtle">
               <p className="text-[14px] mb-1">No issues match your filters</p>
               <span className="text-[12px] text-ink-tertiary">
@@ -738,13 +730,13 @@ export default function App() {
               </span>
             </div>
           ) : (
-            displayIssues.map((issue) => (
+            allIssues.map((issue) => (
               <IssueCard key={issue.id} issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} selectMode={selectMode} selected={selectedIds.has(issue.id)} onToggleSelect={toggleSelect} />
             ))
           )}
         </div>
 
-        {hasMore && displayIssues.length > 0 && (
+        {hasMore && allIssues.length > 0 && (
           <button
             onClick={handleLoadMore}
             className="w-full mt-4 text-[13px] font-medium px-[14px] py-[9px] rounded-md bg-surface-1 text-ink-muted border border-hairline hover:bg-surface-2 hover:text-ink transition-colors cursor-pointer"
