@@ -716,10 +716,10 @@ export default function App() {
             <div className="bg-warning/10 px-5 py-3 flex items-center gap-3">
               <span className="w-[8px] h-[8px] rounded-full bg-warning animate-pulse" />
               <h2 className="text-[16px] font-bold tracking-[-0.01em] text-warning">
-                Priority Org Issues
+                Priority Issues
               </h2>
               <span className="text-[11px] text-ink-tertiary ml-auto">
-                {displayPriority.length} issues from your tracked orgs
+                {displayPriority.length} issues from tracked repos & orgs
               </span>
             </div>
             <div className="flex flex-col gap-[10px] p-4 bg-warning/[0.03]">
