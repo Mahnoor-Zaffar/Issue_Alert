@@ -277,6 +277,7 @@ export default function App() {
       const list = data.issues || [];
       setHasMore(list.length >= PAGE_SIZE);
       if (append) {
+        setPriorityIssues((prev) => [...prev, ...list.filter((i) => i.is_priority)]);
         setIssues((prev) => [...prev, ...list.filter((i) => !i.is_priority)]);
       } else {
         setPriorityIssues(list.filter((i) => i.is_priority));
