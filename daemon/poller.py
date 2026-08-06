@@ -144,8 +144,11 @@ def detect_bounty(item: dict[str, Any]) -> dict[str, Any]:
     m = _DOLLAR_RE.search(text)
     if m:
         raw = m.group(1) or m.group(2) or m.group(3)
-        if raw:
-            amount = float(raw.replace(",", ""))
+        if raw and raw.strip():
+            try:
+                amount = float(raw.replace(",", ""))
+            except ValueError:
+                pass
 
     return {"is_bounty": is_bounty, "bounty_amount": amount}
 
@@ -416,6 +419,8 @@ class GitHubPoller:
         repos = get_priority_repos()
         if not hasattr(self, "_batch_idx"):
             self._batch_idx = 0
+        # Sort: orgs first, then repos — so orgs are always polled early
+        repos.sort(key=lambda r: (not bool(r.get("is_org")), r.get("full_name", "")))
         batch_start = self._batch_idx % max(len(repos), 1)
         batch_repos = repos[batch_start : batch_start + self._BATCH_SIZE]
         self._batch_idx = (self._batch_idx + len(batch_repos)) % max(len(repos), 1)
