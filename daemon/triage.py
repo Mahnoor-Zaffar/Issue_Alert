@@ -155,12 +155,10 @@ If evidence is insufficient, say so explicitly.
 
 
 SECTION_PATTERN = re.compile(
-    r"##\s*🧩 What This Part of the Code Does\s*\n(.*?)"
-    r"##\s*🐛 What's Wrong and What Needs to Change\s*\n(.*?)"
-    r"##\s*📁 Files You'll Need to Edit\s*\n(.*?)"
-    r"##\s*📝 Step-by-Step Plan to Fix It\s*\n(.*?)"
-    r"##\s*💡 One-Line Fix\s*\n(.*?)"
-    r"##\s*💬.*?\n(.*)",
+    r"##\s*(?:Understanding|🧩 What This Part of the Code Does)\s*\n(.*?)(?=##\s*|$)"
+    r"##\s*(?:Core problem|🐛 What's Wrong and What Needs to Change)\s*\n(.*?)(?=##\s*|$)"
+    r"##\s*(?:Suggested approach|📁 Files You'll Need to Edit|📝 Step-by-Step Plan)\s*\n(.*?)(?=##\s*|$)"
+    r"(?:##\s*(?:Clarifications|💬|💡 One-Line Fix)\s*\n(.*?))?$",
     re.DOTALL | re.IGNORECASE,
 )
 
@@ -256,21 +254,12 @@ class TriageEngine:
     def _parse_response(self, raw: str) -> dict[str, str]:
         match = SECTION_PATTERN.search(raw)
         if match:
-            variants_text = match.group(6).strip()
-            claim_variants = self._parse_variants(variants_text)
             return {
                 "architecture_context": match.group(1).strip(),
                 "issue_breakdown": match.group(2).strip(),
-                "action_plan": (
-                    "**📁 Files to edit:**\n"
-                    + match.group(3).strip()
-                    + "\n\n**📝 Step-by-step:**\n"
-                    + match.group(4).strip()
-                    + "\n\n**💡 One-Line Fix:**\n"
-                    + match.group(5).strip()
-                ),
-                "claim_comment": json.dumps(claim_variants),
-                "claim_variants": claim_variants,
+                "action_plan": match.group(3).strip(),
+                "claim_comment": match.group(4).strip() if match.group(4) else "",
+                "claim_variants": self._parse_variants(match.group(4) or ""),
                 "raw_response": raw,
             }
 
