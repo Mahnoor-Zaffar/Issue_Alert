@@ -431,7 +431,6 @@ async def run() -> None:
     init_db()
 
     for org in (
-        "grayhatdevelopers",
         "legesher",
         "outline",
         "deviceframer",
