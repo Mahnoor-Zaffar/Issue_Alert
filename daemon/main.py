@@ -430,7 +430,18 @@ async def run() -> None:
     acquire_daemon_lock()
     init_db()
 
-    for org in ("grayhatdevelopers", "legesher", "outline", "deviceframer", "hexdotcom"):
+    for org in (
+        "grayhatdevelopers",
+        "legesher",
+        "outline",
+        "deviceframer",
+        "hexdotcom",
+        "tiangolo",
+        "openai",
+        "jxnl",
+        "BerriAI",
+        "OpenAccess-AI-Collective",
+    ):
         add_priority_repo(org)
 
     poller = GitHubPoller()
