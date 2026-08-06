@@ -178,6 +178,12 @@ export default function IssueCard({ issue, onTriageClick, showToast, onDismiss, 
             <Badge className="bg-warning/10 text-warning">Priority</Badge>
           )}
 
+          {issue.is_bounty && (
+            <Badge className="bg-success/15 text-success">
+              {issue.bounty_amount ? `$${issue.bounty_amount.toLocaleString()}` : "Bounty"}
+            </Badge>
+          )}
+
           {issue.difficulty && (
             <Badge
               className={`cursor-pointer transition-colors

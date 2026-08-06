@@ -18,7 +18,32 @@ _LINKED_PR_BODY_RE = re.compile(
     re.IGNORECASE,
 )
 _CLAIMED_BODY_RE = re.compile(
-    r"\b(i['’]?ll\s+(take|work\s+on|implement|fix)|i\s+(claim|want\s+this)|claim\s+this\s+(bounty|issue))\b",
+    r"\b(i['\u2019]ll\s+(take|work\s+on|implement|fix)|i\s+(claim|want\s+this)|claim\s+this\s+(bounty|issue))\b",
+    re.IGNORECASE,
+)
+
+_BOUNTY_LABELS = frozenset(
+    {
+        "bounty",
+        "\U0001f48e",
+        "$",
+        "reward",
+        "paid",
+        "funded",
+        "incentive",
+        "sponsor",
+        "algora",
+        "gitcoin",
+        "issuehunt",
+        "bountysource",
+        "has:bounty",
+    }
+)
+
+_DOLLAR_RE = re.compile(
+    r"\$\s*([\d,]+(?:\.\d{1,2})?)"
+    r"|(?:bounty|reward|prize)\s*[:=]?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)"
+    r"|([\d,]+(?:\.\d{1,2})?)\s*(?:USD|USDC|USDT)",
     re.IGNORECASE,
 )
 
@@ -88,6 +113,41 @@ def build_priority_query(full_name: str, cutoff: datetime | None = None) -> str:
     if settings.max_issue_comments == 0:
         parts.append("comments:0")
     return " ".join(parts)
+
+
+def build_org_query(org: str, cutoff: datetime | None = None) -> str:
+    cutoff = cutoff or freshness_cutoff_utc()
+    parts = [
+        "is:issue",
+        "is:open",
+        "-linked:pr",
+        format_created_filter(cutoff),
+        f"org:{org}",
+    ]
+    if settings.max_issue_comments == 0:
+        parts.append("comments:0")
+    return " ".join(parts)
+
+
+def detect_bounty(item: dict[str, Any]) -> dict[str, Any]:
+    labels = [label["name"].lower() for label in item.get("labels", [])]
+    title = item.get("title", "")
+    body = item.get("body") or ""
+    text = f"{title}\n{body}"
+
+    is_bounty = bool(_BOUNTY_LABELS & set(labels))
+    amount = None
+
+    if not is_bounty:
+        is_bounty = any(kw in text.lower() for kw in ("bounty", "reward", "prize"))
+
+    m = _DOLLAR_RE.search(text)
+    if m:
+        raw = m.group(1) or m.group(2) or m.group(3)
+        if raw:
+            amount = float(raw.replace(",", ""))
+
+    return {"is_bounty": is_bounty, "bounty_amount": amount}
 
 
 def passes_claim_verification(
@@ -324,9 +384,16 @@ class GitHubPoller:
         return normalized, total_count, None
 
     async def _fetch_repo_issues(
-        self, full_name: str, cutoff: datetime, max_pages: int, is_priority: bool
+        self,
+        full_name: str,
+        cutoff: datetime,
+        max_pages: int,
+        is_priority: bool,
+        *,
+        query: str | None = None,
     ) -> list[dict[str, Any]]:
-        query = build_priority_query(full_name, cutoff)
+        if query is None:
+            query = build_priority_query(full_name, cutoff)
         items, _, ok = await self._search_pages(query, max_pages=max_pages)
         if not ok:
             return []
@@ -360,13 +427,23 @@ class GitHubPoller:
             self._last_priority_poll: dict[str, float] = {}
         for r in batch_repos:
             is_high = bool(r.get("is_high_priority"))
+            is_org = bool(r.get("is_org"))
             if not is_high:
                 last = self._last_priority_poll.get(r["full_name"], 0)
                 if now - last < cooldown_seconds:
                     continue
             self._last_priority_poll[r["full_name"]] = now
-            max_pages = 1 if is_high else 1
-            repo_issues = await self._fetch_repo_issues(r["full_name"], cutoff, max_pages, is_high)
+            if is_org:
+                query = build_org_query(r["owner"], cutoff)
+                repo_issues = await self._fetch_repo_issues(
+                    r["full_name"],
+                    cutoff,
+                    max_pages=2,
+                    is_priority=True,
+                    query=query,
+                )
+            else:
+                repo_issues = await self._fetch_repo_issues(r["full_name"], cutoff, max_pages=1, is_priority=is_high)
             all_issues.extend(repo_issues)
         if all_issues:
             logger.info("Found %d priority issue(s)", len(all_issues))
@@ -488,6 +565,7 @@ class GitHubPoller:
             "comments": item.get("comments", 0),
             "assignees": item.get("assignees") or [],
             "assignee": item.get("assignee"),
+            **detect_bounty(item),
         }
 
     def _detect_language_from_text(self, labels: list[str], title: str) -> str | None:

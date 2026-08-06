@@ -29,6 +29,9 @@ MIGRATIONS = [
     "ALTER TABLE issues ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE triage_reports ADD COLUMN claim_comment TEXT",
     "ALTER TABLE priority_repos ADD COLUMN is_high_priority INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE priority_repos ADD COLUMN is_org INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE issues ADD COLUMN is_bounty INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE issues ADD COLUMN bounty_amount REAL",
 ]
 
 
@@ -179,6 +182,10 @@ def compute_score(issue: dict[str, Any]) -> float:
     elif body_len == 0:
         score -= 5
 
+    if issue.get("is_bounty"):
+        amount = issue.get("bounty_amount") or 0
+        score += min(amount / 10.0, 30.0) if amount else 25.0
+
     return round(score, 2)
 
 
@@ -213,7 +220,9 @@ def compute_top_pick_score(issue: dict[str, Any]) -> float:
     body_len = len((issue.get("body") or "").strip())
     quality = min(body_len / 500.0, 1.0)
 
-    return round(prestige * label_score * difficulty_bonus * freshness * (0.5 + 0.5 * quality) * 100, 1)
+    bounty_bonus = 1.5 if issue.get("is_bounty") else 1.0
+
+    return round(prestige * label_score * difficulty_bonus * freshness * bounty_bonus * (0.5 + 0.5 * quality) * 100, 1)
 
 
 def get_top_picks(limit: int = 3) -> list[dict[str, Any]]:
@@ -337,8 +346,8 @@ def insert_issue(issue: dict[str, Any]) -> int:
                 github_id, title, body, html_url, repo_full_name,
                 repo_clone_url, labels, language, repo_stars, score,
                 comments, state, status, github_created_at, created_at,
-                updated_at, is_priority
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                updated_at, is_priority, is_bounty, bounty_amount
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 issue["github_id"],
@@ -358,6 +367,8 @@ def insert_issue(issue: dict[str, Any]) -> int:
                 now,
                 now,
                 issue.get("is_priority", False),
+                issue.get("is_bounty", False),
+                issue.get("bounty_amount"),
             ),
         )
         if cursor.lastrowid:
@@ -556,6 +567,7 @@ def list_issues(
     claimed_only: bool = False,
     is_priority: bool | None = None,
     difficulty: str | None = None,
+    bounty_only: bool = False,
 ) -> list[dict[str, Any]]:
     visible_clauses, visible_params = _visible_issue_clauses(
         show_dismissed=show_dismissed, bookmarked_only=bookmarked_only
@@ -582,6 +594,8 @@ def list_issues(
     if difficulty:
         clauses.append("t.difficulty = ?")
         params.append(difficulty)
+    if bounty_only:
+        clauses.append("i.is_bounty = 1")
 
     where = " AND ".join(clauses)
     params.extend([limit, offset])
@@ -914,6 +928,7 @@ def _row_to_issue(row: sqlite3.Row) -> dict[str, Any]:
     issue["triage"] = triage
     issue["difficulty"] = difficulty
     issue["is_priority"] = bool(issue.get("is_priority", False))
+    issue["is_bounty"] = bool(issue.get("is_bounty", False))
     return issue
 
 
@@ -924,7 +939,8 @@ def get_priority_repos() -> list[dict[str, Any]]:
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT id, owner, repo, full_name, added_at, "
-            "COALESCE(is_high_priority, 0) AS is_high_priority "
+            "COALESCE(is_high_priority, 0) AS is_high_priority, "
+            "COALESCE(is_org, 0) AS is_org "
             "FROM priority_repos ORDER BY is_high_priority DESC, added_at"
         ).fetchall()
         return [dict(r) for r in rows]
@@ -932,16 +948,28 @@ def get_priority_repos() -> list[dict[str, Any]]:
 
 def add_priority_repo(full_name: str) -> dict[str, Any] | None:
     parts = full_name.strip().split("/")
-    if len(parts) != 2:
+    if len(parts) == 1:
+        owner = parts[0]
+        is_org = 1
+        repo = None
+    elif len(parts) == 2:
+        owner, repo = parts
+        is_org = 0
+    else:
         return None
-    owner, repo = parts
     with get_connection() as conn:
         try:
             cursor = conn.execute(
-                "INSERT INTO priority_repos (owner, repo, full_name) VALUES (?, ?, ?)",
-                (owner, repo, full_name),
+                "INSERT INTO priority_repos (owner, repo, full_name, is_org) VALUES (?, ?, ?, ?)",
+                (owner, repo, full_name, is_org),
             )
-            return {"id": cursor.lastrowid, "owner": owner, "repo": repo, "full_name": full_name}
+            return {
+                "id": cursor.lastrowid,
+                "owner": owner,
+                "repo": repo,
+                "full_name": full_name,
+                "is_org": bool(is_org),
+            }
         except sqlite3.IntegrityError:
             return None
 

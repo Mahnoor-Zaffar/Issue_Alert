@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS issues (
     state           TEXT NOT NULL DEFAULT 'open',
     status          TEXT NOT NULL DEFAULT 'pending',
     error_message   TEXT,
+    is_bounty       INTEGER NOT NULL DEFAULT 0,
+    bounty_amount   REAL,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -86,10 +88,11 @@ CREATE INDEX IF NOT EXISTS idx_webhook_queue_processed ON webhook_queue(processe
 CREATE TABLE IF NOT EXISTS priority_repos (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     owner            TEXT NOT NULL,
-    repo             TEXT NOT NULL,
+    repo             TEXT,
     full_name        TEXT NOT NULL UNIQUE,
     added_at         TEXT NOT NULL DEFAULT (datetime('now')),
-    is_high_priority INTEGER NOT NULL DEFAULT 0
+    is_high_priority INTEGER NOT NULL DEFAULT 0,
+    is_org           INTEGER NOT NULL DEFAULT 0
 );
 
 INSERT OR IGNORE INTO daemon_state (id) VALUES (1);

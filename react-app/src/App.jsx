@@ -75,6 +75,7 @@ function readFilters() {
     filterSaved: p.get("saved") === "1",
     filterPriority: p.get("priority") === "1",
     filterClaimed: p.get("claimed") === "1",
+    filterBounty: p.get("bounty") === "1",
     searchQuery: p.get("q") || "",
     sortBy: p.get("sort") || "newest",
   };
@@ -89,6 +90,7 @@ function writeFilters(filters) {
   if (filters.filterSaved) p.set("saved", "1");
   if (filters.filterPriority) p.set("priority", "1");
   if (filters.filterClaimed) p.set("claimed", "1");
+  if (filters.filterBounty) p.set("bounty", "1");
   if (filters.searchQuery) p.set("q", filters.searchQuery);
   if (filters.sortBy && filters.sortBy !== "newest") p.set("sort", filters.sortBy);
   const q = p.toString();
@@ -135,6 +137,7 @@ export default function App() {
   const [filterLabel, setFilterLabel] = useState(initial.filterLabel);
   const [filterSaved, setFilterSaved] = useState(initial.filterSaved);
   const [filterClaimed, setFilterClaimed] = useState(initial.filterClaimed);
+  const [filterBounty, setFilterBounty] = useState(initial.filterBounty);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [desktopNotif, setDesktopNotif] = useState(false);
   const [filterPriority, setFilterPriority] = useState(initial.filterPriority);
@@ -199,13 +202,13 @@ export default function App() {
     const preset = {
       name,
       filterLang, filterStatus, filterDiff, filterLabel,
-      filterSaved, filterPriority, filterClaimed, searchQuery, sortBy,
+      filterSaved, filterPriority, filterClaimed, filterBounty, searchQuery, sortBy,
     };
     const updated = [...savedSearches, preset];
     setSavedSearches(updated);
     localStorage.setItem("savedSearches", JSON.stringify(updated));
     showToast(`Saved "${name}"`, "success");
-  }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, searchQuery, sortBy, savedSearches, showToast]);
+  }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, filterBounty, searchQuery, sortBy, savedSearches, showToast]);
 
   const handleLoadSearch = useCallback((preset) => {
     setFilterLang(preset.filterLang || "");
@@ -215,6 +218,7 @@ export default function App() {
     setFilterSaved(preset.filterSaved || false);
     setFilterPriority(preset.filterPriority || false);
     setFilterClaimed(preset.filterClaimed || false);
+    setFilterBounty(preset.filterBounty || false);
     setSearchQuery(preset.searchQuery || "");
     setSortBy(preset.sortBy || "newest");
     showToast(`Loaded "${preset.name}"`, "success");
@@ -250,8 +254,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    writeFilters({ filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, searchQuery, sortBy });
-  }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, searchQuery, sortBy]);
+    writeFilters({ filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, filterBounty, searchQuery, sortBy });
+  }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, filterBounty, searchQuery, sortBy]);
 
   const loadIssues = useCallback(async (append = false) => {
     const id = ++loadRef.current;
@@ -265,6 +269,7 @@ export default function App() {
     if (filterSaved) params.bookmarked_only = "true";
     if (filterPriority) params.is_priority = "true";
     if (filterClaimed) params.claimed_only = "true";
+    if (filterBounty) params.bounty_only = "true";
 
     try {
       const data = await fetchIssues(params);
@@ -282,7 +287,7 @@ export default function App() {
     } catch {
       showToast("Failed to load issues", "error");
     }
-  }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, offset, showToast]);
+  }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, filterBounty, offset, showToast]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -573,6 +578,16 @@ export default function App() {
               className="accent-primary"
             />
             Claimed
+          </label>
+
+          <label className="flex items-center gap-[5px] text-[12px] text-ink-muted cursor-pointer select-none shrink-0">
+            <input
+              type="checkbox"
+              checked={filterBounty}
+              onChange={(e) => setFilterBounty(e.target.checked)}
+              className="accent-primary"
+            />
+            Bounty
           </label>
 
           <label className="flex items-center gap-[5px] text-[12px] cursor-pointer select-none shrink-0">

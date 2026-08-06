@@ -19,6 +19,7 @@ from daemon.poller import (
 )
 from daemon.triage import TriageEngine
 from db.store import (
+    add_priority_repo,
     dequeue_triage,
     fetch_pending_webhooks,
     get_errored_issues_for_retry,
@@ -428,6 +429,10 @@ async def interruptible_sleep(seconds: int) -> bool:
 async def run() -> None:
     acquire_daemon_lock()
     init_db()
+
+    for org in ("grayhatdevelopers", "legesher", "outline", "deviceframer", "hexdotcom"):
+        add_priority_repo(org)
+
     poller = GitHubPoller()
     triage_engine = TriageEngine()
 

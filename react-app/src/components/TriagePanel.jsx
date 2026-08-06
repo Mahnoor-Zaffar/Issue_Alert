@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { reTriage, openPR, fetchPRDetails, setClaimed, generatePR } from "../api";
+import { reTriage, openPR, fetchPRDetails, setClaimed } from "../api";
 
 function Section({ title, children }) {
   return (
@@ -31,8 +31,6 @@ export default function TriagePanel({ issue, onClose, showToast }) {
   const [claiming, setClaiming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [variantIx, setVariantIx] = useState(0);
-  const [prGen, setPrGen] = useState(null);
-  const [prGenLoading, setPrGenLoading] = useState(false);
 
   const t = issue?.triage;
   if (!issue || !t) return null;
@@ -61,27 +59,18 @@ export default function TriagePanel({ issue, onClose, showToast }) {
     setRetriaging(false);
   }, [issue.id, showToast]);
 
-  const handleGeneratePR = useCallback(async () => {
-    setPrGenLoading(true);
-    try {
-      const data = await generatePR(issue.id);
-      setPrGen(data);
-      navigator.clipboard.writeText(data.pr_body).then(() => {
-        showToast?.("PR description copied — push your branch then open the compare URL", "success");
-      });
-      window.open(data.compare_url, "_blank");
-    } catch (e) {
-      showToast?.(e?.message || "Failed to generate PR", "error");
-    }
-    setPrGenLoading(false);
-  }, [issue.id, showToast]);
-
   const handleOpenPR = useCallback(async () => {
     setPROpening(true);
     try {
       const data = await openPR(issue.id);
-      if (data.pr_url) window.open(data.pr_url, "_blank");
-      showToast?.("PR opened in new tab", "success");
+      if (data.pr_url) {
+        window.open(data.pr_url, "_blank");
+        showToast?.("Draft PR opened in new tab", "success");
+      } else if (data.fallback) {
+        await navigator.clipboard.writeText(data.pr_body);
+        window.open(data.compare_url, "_blank");
+        showToast?.("PR description copied — paste it on the compare page", "success");
+      }
     } catch (e) {
       showToast?.(e?.message || "Failed to open PR", "error");
     }
@@ -269,13 +258,15 @@ export default function TriagePanel({ issue, onClose, showToast }) {
 
           {/* Action buttons */}
           <div className="flex gap-2 pt-2 flex-wrap">
-            <button
-              onClick={handleGeneratePR}
-              disabled={prGenLoading}
-              className="text-xs font-medium px-[12px] py-[6px] rounded-md bg-success text-white hover:bg-success/90 transition-colors cursor-pointer border-none disabled:opacity-40"
-            >
-              {prGenLoading ? "Generating…" : "🚀 Generate PR"}
-            </button>
+            {!prUrl && (
+              <button
+                onClick={handleOpenPR}
+                disabled={prOpening}
+                className="text-xs font-medium px-[12px] py-[6px] rounded-md bg-success text-white hover:bg-success/90 transition-colors cursor-pointer border-none disabled:opacity-40"
+              >
+                {prOpening ? "Opening…" : "Open Draft PR"}
+              </button>
+            )}
             <button
               onClick={handleClaimToggle}
               disabled={claiming}
@@ -287,15 +278,6 @@ export default function TriagePanel({ issue, onClose, showToast }) {
             >
               {claiming ? "..." : issue.claimed ? "✓ Claimed" : "Claim Issue"}
             </button>
-            {issue.difficulty === "easy" && !prUrl && (
-              <button
-                onClick={handleOpenPR}
-                disabled={prOpening}
-                className="text-xs font-medium px-[12px] py-[6px] rounded-md bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none disabled:opacity-40"
-              >
-                {prOpening ? "Opening…" : "Open Draft PR"}
-              </button>
-            )}
             <button
               onClick={handleReTriage}
               disabled={retriaging}
