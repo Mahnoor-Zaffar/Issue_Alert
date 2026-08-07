@@ -443,6 +443,15 @@ async def run() -> None:
     ):
         add_priority_repo(org)
 
+    for repo in (
+        "yashlamba/handwrite",
+        "citrolabs/ego-lite",
+        "firecrawl/pdf-inspector",
+        "DO-SAY-GO/tdf",
+        "1jehuang/jcode",
+    ):
+        add_priority_repo(repo)
+
     poller = GitHubPoller()
     triage_engine = TriageEngine()
 
