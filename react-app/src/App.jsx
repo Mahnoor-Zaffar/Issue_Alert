@@ -3,6 +3,7 @@ import Sidebar from "./components/Sidebar";
 import IssueCard from "./components/IssueCard";
 import TriagePanel from "./components/TriagePanel";
 import Toast from "./components/Toast";
+import BountyPopup from "./components/BountyPopup";
 import { useSSE } from "./useSSE";
 import { fetchIssues, fetchStats, fetchStatsHistory, triggerPoll, setBookmark, dismissIssue, fetchTopPicks, fetchResume } from "./api";
 
@@ -147,6 +148,7 @@ export default function App() {
   const [resumeMd, setResumeMd] = useState("");
   const [showResume, setShowResume] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bountyPopups, setBountyPopups] = useState([]);
   const [selectMode, setSelectMode] = useState(false);
   const [savedSearches, setSavedSearches] = useState(() => {
     try { return JSON.parse(localStorage.getItem("savedSearches") || "[]"); } catch { return []; }
@@ -314,6 +316,17 @@ export default function App() {
         playPriorityChime();
         showToast(`🔔 New priority: ${updated.title.slice(0, 60)}`, "info");
         sendDesktopNotif("🔔 New Priority Issue", `${updated.repo_full_name} — ${updated.title.slice(0, 80)}`, window.location.origin);
+      }
+
+      if (isNew && updated.is_bounty) {
+        const id = Date.now();
+        setBountyPopups((prev) => [...prev, { id, issue: updated }]);
+        playPriorityChime();
+        sendDesktopNotif(
+          `💰 New Bounty Issue${updated.bounty_amount ? ` — $${updated.bounty_amount.toLocaleString()}` : ""}`,
+          `${updated.repo_full_name} — ${updated.title.slice(0, 80)}`,
+          updated.html_url
+        );
       }
 
       if (autoRefresh) {
@@ -786,6 +799,20 @@ export default function App() {
       )}
 
       <Toast message={toast.message} type={toast.type} action={toast.action} onClose={() => setToast({ message: "", type: "info", action: null })} />
+
+      <div className="fixed top-5 right-5 z-[100] flex flex-col gap-3">
+        {bountyPopups.map(({ id, issue }) => (
+          <BountyPopup
+            key={id}
+            issue={issue}
+            onClose={() => setBountyPopups((prev) => prev.filter((p) => p.id !== id))}
+            onOpen={() => {
+              setBountyPopups((prev) => prev.filter((p) => p.id !== id));
+              window.open(issue.html_url, "_blank");
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
