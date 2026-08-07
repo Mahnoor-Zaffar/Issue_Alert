@@ -951,7 +951,7 @@ def add_priority_repo(full_name: str) -> dict[str, Any] | None:
     if len(parts) == 1:
         owner = parts[0]
         is_org = 1
-        repo = None
+        repo = f".org-{owner}"
     elif len(parts) == 2:
         owner, repo = parts
         is_org = 0
