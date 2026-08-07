@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -72,6 +72,14 @@ async def serve_index():
     if react_index.exists():
         return FileResponse(react_index)
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@router.get("/favicon.ico")
+async def serve_favicon():
+    favicon = STATIC_DIR / "favicon.ico"
+    if favicon.exists():
+        return FileResponse(favicon, media_type="image/x-icon")
+    return Response(status_code=204)
 
 
 @router.get("/api/issues")
