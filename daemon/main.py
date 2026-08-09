@@ -440,6 +440,21 @@ async def run() -> None:
         "jxnl",
         "BerriAI",
         "OpenAccess-AI-Collective",
+        "Shopify",
+        "aws",
+        "Azure",
+        "huggingface",
+        "kubernetes",
+        "apache",
+        "psf",
+        "Jupyter",
+        "fossasia",
+        "pallets",
+        "wagtail",
+        "django",
+        "rust-lang",
+        "mozilla",
+        "tensorflow",
     ):
         add_priority_repo(org)
 
