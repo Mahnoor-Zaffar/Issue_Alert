@@ -95,6 +95,7 @@ async def api_list_issues(
     is_priority: bool | None = None,
     difficulty: str | None = None,
     bounty_only: bool = False,
+    hide_old_unclaimed: bool = False,
 ):
     return {
         "issues": list_issues(
@@ -109,6 +110,7 @@ async def api_list_issues(
             is_priority=is_priority,
             difficulty=difficulty,
             bounty_only=bounty_only,
+            hide_old_unclaimed=hide_old_unclaimed,
         )
     }
 

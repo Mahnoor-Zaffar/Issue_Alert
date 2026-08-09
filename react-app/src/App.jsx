@@ -5,6 +5,7 @@ import TriagePanel from "./components/TriagePanel";
 import Toast from "./components/Toast";
 import BountyPopup from "./components/BountyPopup";
 import { useSSE } from "./useSSE";
+import { usePaginatedIssues, PAGE_SIZE } from "./usePaginatedIssues";
 import { fetchIssues, fetchStats, fetchStatsHistory, triggerPoll, setBookmark, dismissIssue, fetchTopPicks, fetchResume } from "./api";
 
 const DIFFICULTY_OPTIONS = [
@@ -45,8 +46,6 @@ const SORT_OPTIONS = [
   { value: "repo", label: "Repo A-Z" },
   { value: "saved", label: "Similar to Saved" },
 ];
-
-const PAGE_SIZE = 30;
 
 function playPriorityChime() {
   try {
@@ -129,8 +128,6 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [panelIssue, setPanelIssue] = useState(null);
   const [toast, setToast] = useState({ message: "", type: "info", action: null });
-  const [offset, setOffset] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
 
   const [filterLang, setFilterLang] = useState(initial.filterLang);
   const [filterStatus, setFilterStatus] = useState(initial.filterStatus);
@@ -154,11 +151,7 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem("savedSearches") || "[]"); } catch { return []; }
   });
 
-  const loadRef = useRef(0);
   const knownIds = useRef(new Set());
-  const pageCursor = useRef(0);
-  const sentinelRef = useRef(null);
-  const loadingMore = useRef(false);
 
   const showToast = useCallback((message, type = "info", action = null) => {
     setToast({ message, type, action });
@@ -262,43 +255,44 @@ export default function App() {
     writeFilters({ filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, filterBounty, searchQuery, sortBy });
   }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, filterBounty, searchQuery, sortBy]);
 
-  const loadIssues = useCallback(async (append = false, pageOffset = 0) => {
-    const id = ++loadRef.current;
-    const params = { limit: PAGE_SIZE };
-    params.offset = append ? pageOffset : 0;
-    if (filterLang) params.language = filterLang;
-    if (filterStatus) params.status = filterStatus;
-    if (filterDiff) params.difficulty = filterDiff;
-    if (filterLabel) params.label = filterLabel;
-    if (filterSaved) params.bookmarked_only = "true";
-    if (filterPriority) params.is_priority = "true";
-    if (filterClaimed) params.claimed_only = "true";
-    if (filterBounty) params.bounty_only = "true";
+  const {
+    data,
+    issues: pageIssues,
+    page,
+    setPage,
+    hasNextPage,
+    isFetchingPage,
+    refetch,
+  } = usePaginatedIssues({
+    filterLang,
+    filterStatus,
+    filterDiff,
+    filterLabel,
+    filterSaved,
+    filterPriority,
+    filterClaimed,
+    filterBounty,
+  });
 
-    try {
-      const data = await fetchIssues(params);
-      if (id !== loadRef.current) return;
-      const list = data.issues || [];
-      setHasMore(list.length >= PAGE_SIZE);
-      if (append) {
-        setPriorityIssues((prev) => {
-          const seen = new Set(prev.map((i) => i.id));
-          return [...prev, ...list.filter((i) => i.is_priority && !seen.has(i.id))];
-        });
-        setIssues((prev) => {
-          const seen = new Set(prev.map((i) => i.id));
-          return [...prev, ...list.filter((i) => !i.is_priority && !seen.has(i.id))];
-        });
-      } else {
-        setPriorityIssues(list.filter((i) => i.is_priority));
-        setIssues(list.filter((i) => !i.is_priority));
-        setOffset(0);
-      }
-      list.forEach((i) => knownIds.current.add(i.id));
-    } catch {
-      showToast("Failed to load issues", "error");
+  const filterKey = [
+    filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, filterBounty,
+  ].join("|");
+  const lastFilterKey = useRef(filterKey);
+
+  useEffect(() => {
+    const list = pageIssues || [];
+    if (!data) return;
+    const isNewFilter = lastFilterKey.current !== filterKey;
+    lastFilterKey.current = filterKey;
+    if (isNewFilter) {
+      setPriorityIssues(list.filter((i) => i.is_priority));
+      setIssues(list.filter((i) => !i.is_priority));
+    } else {
+      setPriorityIssues(list.filter((i) => i.is_priority));
+      setIssues(list.filter((i) => !i.is_priority));
     }
-  }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, filterBounty, offset, showToast]);
+    list.forEach((i) => knownIds.current.add(i.id));
+  }, [data, pageIssues, filterKey]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -388,21 +382,18 @@ export default function App() {
   });
 
   useEffect(() => {
-    loadIssues();
     loadStats();
   }, []);
 
   useEffect(() => {
-    pageCursor.current = 0;
-    loadIssues();
-    setOffset(0);
-  }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed]);
+    refetch();
+  }, [filterKey]);
 
   const handleRefresh = useCallback(() => {
-    loadIssues();
+    refetch();
     loadStats();
     showToast("Refreshed", "success");
-  }, [loadIssues, loadStats, showToast]);
+  }, [refetch, loadStats, showToast]);
 
   const handlePollNow = useCallback(async () => {
     try {
@@ -412,30 +403,6 @@ export default function App() {
       showToast("Poll request failed", "error");
     }
   }, [showToast]);
-
-  const handleLoadMore = useCallback(() => {
-    const nextOffset = pageCursor.current + PAGE_SIZE;
-    pageCursor.current = nextOffset;
-    setOffset(nextOffset);
-    loadIssues(true, nextOffset);
-  }, [loadIssues]);
-
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loadingMore.current) {
-          loadingMore.current = true;
-          handleLoadMore();
-          setTimeout(() => { loadingMore.current = false; }, 800);
-        }
-      },
-      { rootMargin: "400px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [handleLoadMore, hasMore]);
 
   const handleTriageClick = useCallback((issue) => {
     setPanelIssue(issue);
@@ -454,13 +421,13 @@ export default function App() {
           body: JSON.stringify({ value: false }),
         }).then(() => {
           showToast("Undone", "success");
-          loadIssues();
+          refetch();
         }).catch(() => {
           showToast("Undo failed", "error");
         });
       },
     });
-  }, [showToast, loadIssues]);
+  }, [showToast, refetch]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -791,11 +758,25 @@ export default function App() {
           )}
         </div>
 
-        <div ref={sentinelRef} className="h-16 w-full flex items-center justify-center">
-          {hasMore && <span className="text-[12px] text-ink-tertiary animate-pulse">Loading more issues…</span>}
-          {!hasMore && displayIssues.length > 0 && (
-            <span className="text-[12px] text-ink-tertiary">You've reached the end of the feed</span>
-          )}
+        <div className={`h-16 w-full flex items-center justify-center gap-3 ${isFetchingPage ? "opacity-60" : ""}`}>
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0 || isFetchingPage}
+            className="px-3 py-1.5 text-[12px] rounded-md border border-hairline text-ink-muted hover:text-ink disabled:opacity-40 disabled:hover:text-ink-muted"
+          >
+            ← Prev
+          </button>
+          <span className="text-[12px] text-ink-tertiary tabular-nums">
+            Page {page + 1} · {pageIssues.length} shown
+            {isFetchingPage && " · loading…"}
+          </span>
+          <button
+            onClick={() => setPage((p) => p + 1)}
+            disabled={!hasNextPage || isFetchingPage}
+            className="px-3 py-1.5 text-[12px] rounded-md border border-line text-ink-muted hover:text-ink disabled:opacity-40 disabled:hover:text-ink-muted"
+          >
+            Next →
+          </button>
         </div>
       </main>
 

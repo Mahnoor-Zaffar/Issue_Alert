@@ -568,6 +568,7 @@ def list_issues(
     is_priority: bool | None = None,
     difficulty: str | None = None,
     bounty_only: bool = False,
+    hide_old_unclaimed: bool = False,
 ) -> list[dict[str, Any]]:
     visible_clauses, visible_params = _visible_issue_clauses(
         show_dismissed=show_dismissed, bookmarked_only=bookmarked_only
@@ -596,6 +597,10 @@ def list_issues(
         params.append(difficulty)
     if bounty_only:
         clauses.append("i.is_bounty = 1")
+    if hide_old_unclaimed:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        clauses.append("(i.claimed = 1 OR i.github_created_at IS NULL OR i.github_created_at >= ?)")
+        params.append(today)
 
     where = " AND ".join(clauses)
     params.extend([limit, offset])
