@@ -455,6 +455,12 @@ async def run() -> None:
         "rust-lang",
         "mozilla",
         "tensorflow",
+        "encode",
+        "calcom",
+        "medusajs",
+        "twentyhq",
+        "reactjs",
+        "expressjs",
     ):
         add_priority_repo(org)
 
