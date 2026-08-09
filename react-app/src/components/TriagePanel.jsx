@@ -4,7 +4,7 @@ import { reTriage, openPR, fetchPRDetails, setClaimed } from "../api";
 function Section({ title, children }) {
   return (
     <div className="mb-4 last:mb-0">
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.05em] text-primary mb-2 pb-1 border-b border-hairline">
+      <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-primary-hover mb-2 pb-1.5 border-b border-hairline">
         {title}
       </h3>
       {children}
@@ -138,7 +138,7 @@ export default function TriagePanel({ issue, onClose, showToast }) {
   return (
     <>
       <div className="fixed inset-0 bg-black/60 z-50" onClick={onClose} />
-      <div className="fixed top-0 right-0 w-[520px] max-w-[90vw] h-full bg-surface-1 border-l border-hairline z-50 flex flex-col shadow-2xl">
+      <div className="fixed top-0 right-0 w-[540px] max-w-[92vw] h-full bg-surface-1 border-l border-hairline z-50 flex flex-col shadow-2xl panel-in">
         {/* Header */}
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-hairline shrink-0">
           <div className="min-w-0">
@@ -147,7 +147,7 @@ export default function TriagePanel({ issue, onClose, showToast }) {
           </div>
           <button
             onClick={onClose}
-            className="shrink-0 w-[28px] h-[28px] flex items-center justify-center rounded-md border border-hairline text-ink-tertiary hover:text-ink hover:bg-surface-2 transition-colors text-[14px] cursor-pointer bg-transparent"
+            className="panel-close shrink-0"
           >
             ✕
           </button>
@@ -174,22 +174,22 @@ export default function TriagePanel({ issue, onClose, showToast }) {
                 <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={handleCopy}
-                    className="text-xs font-medium px-[10px] py-[4px] rounded-md bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none"
+                    className="text-xs font-medium px-[10px] py-[4px] rounded-lg bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none"
                   >
-                    {copied ? "✓ Copied" : "📋 Copy"}
+                    {copied ? "Copied" : "Copy"}
                   </button>
                   <button
                     onClick={handleCopyAndOpen}
-                    className="text-xs font-medium px-[10px] py-[4px] rounded-md bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none"
+                    className="text-xs font-medium px-[10px] py-[4px] rounded-lg bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none"
                   >
-                    📋 Copy & Open
+                    Copy &amp; Open
                   </button>
                   {hasMultiple && (
                     <button
                       onClick={cycleVariant}
-                      className="text-xs font-medium px-[10px] py-[4px] rounded-md bg-surface-1 text-ink border border-hairline hover:bg-surface-2 transition-colors cursor-pointer"
+                      className="text-xs font-medium px-[10px] py-[4px] rounded-lg bg-surface-1 text-ink border border-hairline hover:bg-surface-2 transition-colors cursor-pointer"
                     >
-                      🔄 Try another ({variantIx + 1}/{claimVariants.length})
+                      Try another ({variantIx + 1}/{claimVariants.length})
                     </button>
                   )}
                 </div>
@@ -262,7 +262,7 @@ export default function TriagePanel({ issue, onClose, showToast }) {
               <button
                 onClick={handleOpenPR}
                 disabled={prOpening}
-                className="text-xs font-medium px-[12px] py-[6px] rounded-md bg-success text-white hover:bg-success/90 transition-colors cursor-pointer border-none disabled:opacity-40"
+                className="text-xs font-semibold px-[12px] py-[7px] rounded-lg bg-success text-white hover:bg-success/90 transition-colors cursor-pointer border-none disabled:opacity-40"
               >
                 {prOpening ? "Opening…" : "Open Draft PR"}
               </button>
@@ -270,7 +270,7 @@ export default function TriagePanel({ issue, onClose, showToast }) {
             <button
               onClick={handleClaimToggle}
               disabled={claiming}
-              className={`text-xs font-medium px-[12px] py-[6px] rounded-md transition-colors cursor-pointer border-none disabled:opacity-40 ${
+              className={`text-xs font-medium px-[12px] py-[7px] rounded-lg transition-colors cursor-pointer border-none disabled:opacity-40 ${
                 issue.claimed
                   ? "bg-warning/15 text-warning"
                   : "bg-primary text-white hover:bg-primary-hover"
@@ -281,9 +281,9 @@ export default function TriagePanel({ issue, onClose, showToast }) {
             <button
               onClick={handleReTriage}
               disabled={retriaging}
-              className="text-xs font-medium px-[12px] py-[6px] rounded-md bg-surface-1 text-ink border border-hairline hover:bg-surface-2 transition-colors cursor-pointer disabled:opacity-40"
+              className="text-xs font-medium px-[12px] py-[7px] rounded-lg bg-surface-1 text-ink border border-hairline hover:bg-surface-2 transition-colors cursor-pointer disabled:opacity-40"
             >
-              {retriaging ? "Re-triaging…" : "↻ Re-triage"}
+              {retriaging ? "Re-triaging…" : "Re-triage"}
             </button>
           </div>
           {retriageMsg && (

@@ -11,14 +11,15 @@ export default function BountyPopup({ issue, onClose, onOpen }) {
     : "Bounty";
 
   return (
-    <div className="w-[360px] rounded-xl border-2 border-success/50 bg-success/10 backdrop-blur-md shadow-2xl overflow-hidden animate-[fadeIn_0.25s_ease-out]">
-      <div className="bg-success/20 px-4 py-2.5 flex items-center justify-between">
+    <div className="w-[360px] rounded-2xl border border-success/40 bg-surface-1/90 backdrop-blur-md shadow-pop overflow-hidden rise-in">
+      <div className="bg-success/12 px-4 py-2.5 flex items-center justify-between border-b border-success/20">
         <span className="text-[12px] font-bold text-success tracking-wide flex items-center gap-2">
-          <span className="text-[15px]">💰</span> New Bounty Issue — {amount}
+          <span className="w-[18px] h-[18px] rounded-md bg-success/20 text-white flex items-center justify-center text-[10px]">$</span>
+          New Bounty Issue — {amount}
         </span>
         <button
           onClick={onClose}
-          className="w-[22px] h-[22px] flex items-center justify-center rounded-md text-success hover:bg-success/20 transition-colors border-none cursor-pointer"
+          className="panel-close shrink-0 !w-[22px] !h-[22px] text-success border-success/20 hover:bg-success/15 hover:text-success"
         >
           ✕
         </button>
@@ -31,13 +32,13 @@ export default function BountyPopup({ issue, onClose, onOpen }) {
         <div className="flex items-center gap-2">
           <button
             onClick={onOpen}
-            className="flex-1 text-xs font-semibold px-[12px] py-[7px] rounded-md bg-success text-white hover:bg-success/80 transition-colors border-none cursor-pointer"
+            className="flex-1 text-xs font-semibold px-[12px] py-[7px] rounded-lg bg-success text-white hover:bg-success/80 transition-colors border-none cursor-pointer"
           >
             Open Issue
           </button>
           <button
             onClick={onClose}
-            className="text-xs font-medium px-[12px] py-[7px] rounded-md bg-surface-1 text-ink-muted border border-hairline hover:text-ink transition-colors cursor-pointer"
+            className="text-xs font-medium px-[12px] py-[7px] rounded-lg bg-surface-1 text-ink-muted border border-hairline hover:text-ink transition-colors cursor-pointer"
           >
             Dismiss
           </button>

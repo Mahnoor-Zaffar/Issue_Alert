@@ -265,7 +265,7 @@ export default function IssueCard({ issue, onTriageClick, showToast, onDismiss, 
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-[4px] mt-[14px] opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+        <div className="flex items-center gap-[4px] mt-[14px] opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150">
           <button
             onClick={handleBookmark}
             disabled={saving}

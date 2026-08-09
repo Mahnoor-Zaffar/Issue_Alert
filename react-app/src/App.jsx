@@ -119,6 +119,31 @@ function sortIssues(list, sortBy) {
   return sorted;
 }
 
+function ToggleChip({ checked, onChange, label, live = false }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`cursor-pointer select-none shrink-0 inline-flex items-center gap-[6px] text-xs font-medium px-2.5 py-[7px] rounded-xl border transition-colors ${
+        checked
+          ? live
+            ? "text-success border-success/40 bg-success/10"
+            : "text-primary border-primary/40 bg-primary/10"
+          : "text-ink-muted border-hairline hover:text-ink hover:border-hairline-strong"
+      }`}
+    >
+      <span
+        className={`w-[6px] h-[6px] rounded-full transition-colors ${
+          live ? (checked ? "bg-success live-dot" : "bg-ink-tertiary") : checked ? "bg-primary" : "bg-ink-tertiary"
+        }`}
+      />
+      {label}
+    </button>
+  );
+}
+
 export default function App() {
   const initial = readFilters();
   const [issues, setIssues] = useState([]);
@@ -488,15 +513,20 @@ export default function App() {
         showToast={showToast}
       />
 
-      <main className="flex-1 px-10 py-7 max-w-[860px]">
-        <div className="mb-5">
-          <h1 className="text-[22px] font-semibold tracking-[-0.02em]">Live Issue Feed</h1>
-          <p className="text-[13px] text-ink-subtle mt-[2px]">
-            Unclaimed issues from 50+ star repos (last 2 days).
+      <main className="flex-1 min-w-0 px-10 py-10 max-w-[920px]">
+        <header className="mb-8 rise-in">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-hover mb-2">
+            Signal · Live Watch
           </p>
-        </div>
+          <h1 className="text-[28px] font-semibold tracking-[-0.03em] leading-none">
+            Issue Feed
+          </h1>
+          <p className="text-[13px] text-ink-subtle mt-2.5">
+            Unclaimed issues from 50+ star repos (last 2 days), surfaced in real time.
+          </p>
+        </header>
 
-        <div className="flex flex-wrap gap-2 mb-5 items-center">
+        <div className="mb-7 flex flex-wrap gap-2 items-center rounded-2xl border border-hairline bg-surface-1/70 p-3 shadow-card rise-in" style={{ animationDelay: "0.05s" }}>
           <div className="relative flex-1 min-w-[160px] max-w-[240px]">
             <svg className="absolute left-[8px] top-1/2 -translate-y-1/2 w-[14px] h-[14px] text-ink-tertiary pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" strokeLinecap="round" />
@@ -505,14 +535,14 @@ export default function App() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search issues..."
-              className="w-full bg-surface-1 border border-hairline rounded-md pl-[28px] pr-[10px] py-[7px] text-[12px] text-ink outline-none placeholder:text-ink-tertiary"
+              className="w-full bg-canvas border border-hairline rounded-xl pl-[30px] pr-[12px] py-[8px] text-[13px] text-ink outline-none focus:border-primary-focus/40 placeholder:text-ink-tertiary"
             />
           </div>
 
           <select
             value={filterLang}
             onChange={(e) => setFilterLang(e.target.value)}
-            className="bg-surface-1 border border-hairline rounded-md px-[10px] py-[7px] text-[12px] text-ink outline-none cursor-pointer"
+            className="select-mini"
           >
             {LANG_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -522,7 +552,7 @@ export default function App() {
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-surface-1 border border-hairline rounded-md px-[10px] py-[7px] text-[12px] text-ink outline-none cursor-pointer"
+            className="select-mini"
           >
             {STATUS_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -532,7 +562,7 @@ export default function App() {
           <select
             value={filterDiff}
             onChange={(e) => setFilterDiff(e.target.value)}
-            className="bg-surface-1 border border-hairline rounded-md px-[10px] py-[7px] text-[12px] text-ink outline-none cursor-pointer"
+            className="select-mini"
           >
             {DIFFICULTY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -542,7 +572,7 @@ export default function App() {
           <select
             value={filterLabel}
             onChange={(e) => setFilterLabel(e.target.value)}
-            className="bg-surface-1 border border-hairline rounded-md px-[10px] py-[7px] text-[12px] text-ink outline-none cursor-pointer"
+            className="select-mini"
           >
             {LABEL_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -552,71 +582,27 @@ export default function App() {
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
-            className="bg-surface-1 border border-hairline rounded-md px-[10px] py-[7px] text-[12px] text-ink outline-none cursor-pointer"
+            className="select-mini"
           >
             {SORT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
 
-          <label className="flex items-center gap-[5px] text-[12px] text-ink-muted cursor-pointer select-none shrink-0">
-            <input
-              type="checkbox"
-              checked={filterSaved}
-              onChange={(e) => setFilterSaved(e.target.checked)}
-              className="accent-primary"
-            />
-            Saved
-          </label>
+          <span className="w-px h-6 bg-hairline shrink-0" />
 
-          <label className="flex items-center gap-[5px] text-[12px] text-ink-muted cursor-pointer select-none shrink-0">
-            <input
-              type="checkbox"
-              checked={filterPriority}
-              onChange={(e) => setFilterPriority(e.target.checked)}
-              className="accent-primary"
-            />
-            Priority
-          </label>
+          <ToggleChip checked={filterSaved} onChange={setFilterSaved} label="Saved" />
+          <ToggleChip checked={filterPriority} onChange={setFilterPriority} label="Priority" />
+          <ToggleChip checked={filterClaimed} onChange={setFilterClaimed} label="Claimed" />
+          <ToggleChip checked={filterBounty} onChange={setFilterBounty} label="Bounty" />
+          <ToggleChip checked={autoRefresh} onChange={setAutoRefresh} label="Live" live />
 
-          <label className="flex items-center gap-[5px] text-[12px] text-ink-muted cursor-pointer select-none shrink-0">
-            <input
-              type="checkbox"
-              checked={filterClaimed}
-              onChange={(e) => setFilterClaimed(e.target.checked)}
-              className="accent-primary"
-            />
-            Claimed
-          </label>
-
-          <label className="flex items-center gap-[5px] text-[12px] text-ink-muted cursor-pointer select-none shrink-0">
-            <input
-              type="checkbox"
-              checked={filterBounty}
-              onChange={(e) => setFilterBounty(e.target.checked)}
-              className="accent-primary"
-            />
-            Bounty
-          </label>
-
-          <label className="flex items-center gap-[5px] text-[12px] cursor-pointer select-none shrink-0">
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-              className="accent-primary"
-            />
-            <span className={autoRefresh ? "text-success" : "text-ink-muted"}>🔴 Live</span>
-          </label>
-
-          <span className="w-[1px] h-[20px] bg-hairline shrink-0" />
+          <span className="w-px h-6 bg-hairline shrink-0" />
 
           <button
             onClick={requestNotifPerm}
-            className={`text-xs font-medium px-[8px] py-[4px] rounded-md transition-colors border cursor-pointer ${
-              desktopNotif
-                ? "bg-primary/10 text-primary border-primary/30"
-                : "bg-surface-1 text-ink-muted border-hairline hover:text-ink"
+            className={`toolbar-btn ${
+              desktopNotif ? "text-primary border-primary/30 bg-primary/8" : "text-ink-muted border-hairline hover:text-ink hover:border-hairline-strong"
             }`}
             title={desktopNotif ? "Notifications enabled" : "Enable desktop notifications"}
           >
@@ -625,10 +611,10 @@ export default function App() {
 
           <button
             onClick={() => { setSelectMode((v) => !v); setSelectedIds(new Set()); }}
-            className={`text-xs font-medium px-[8px] py-[4px] rounded-md transition-colors border cursor-pointer ${
+            className={`toolbar-btn ${
               selectMode
-                ? "bg-primary/10 text-primary border-primary/30"
-                : "bg-surface-1 text-ink-muted border-hairline hover:text-ink"
+                ? "text-primary border-primary/30 bg-primary/8"
+                : "text-ink-muted border-hairline hover:text-ink hover:border-hairline-strong"
             }`}
           >
             {selectMode ? "✕ Cancel" : "☐ Select"}
@@ -637,7 +623,7 @@ export default function App() {
           {selectMode && selectedIds.size > 0 && (
             <button
               onClick={handleBatchTriage}
-              className="text-xs font-medium px-[10px] py-[4px] rounded-md bg-primary text-white hover:bg-primary-hover transition-colors border-none cursor-pointer"
+              className="toolbar-btn text-white bg-primary/90 border-primary/60 hover:bg-primary"
             >
               Triage {selectedIds.size}
             </button>
@@ -650,7 +636,7 @@ export default function App() {
                 if (idx >= 0) handleLoadSearch(savedSearches[idx]);
               }}
               defaultValue=""
-              className="bg-surface-1 border border-hairline rounded-md px-[8px] py-[5px] text-[11px] text-ink outline-none cursor-pointer"
+              className="select-mini text-[11px]"
             >
               <option value="" disabled>Load preset</option>
               {savedSearches.map((s, i) => (
@@ -661,7 +647,7 @@ export default function App() {
 
           <button
             onClick={handleSaveSearch}
-            className="text-xs font-medium px-[8px] py-[4px] rounded-md bg-surface-1 text-ink-muted border border-hairline hover:text-ink transition-colors cursor-pointer"
+            className="toolbar-btn text-ink-muted border-hairline hover:text-ink hover:border-hairline-strong"
             title="Save current filters as preset"
           >
             💾 Save
@@ -669,7 +655,7 @@ export default function App() {
 
           <button
             onClick={handleExportMarkdown}
-            className="text-xs font-medium px-[8px] py-[4px] rounded-md bg-surface-1 text-ink-muted border border-hairline hover:text-ink transition-colors cursor-pointer"
+            className="toolbar-btn text-ink-muted border-hairline hover:text-ink hover:border-hairline-strong"
             title="Export bookmarked issues as markdown"
           >
             📥 Export
@@ -682,7 +668,7 @@ export default function App() {
               const pick = pool[Math.floor(Math.random() * pool.length)];
               window.open(pick.html_url, "_blank");
             }}
-            className="text-xs font-medium px-[8px] py-[4px] rounded-md bg-surface-1 text-ink-muted border border-hairline hover:text-ink transition-colors cursor-pointer"
+            className="toolbar-btn text-ink-muted border-hairline hover:text-ink hover:border-hairline-strong"
             title="Open a random issue in GitHub"
           >
             🎲 Random
@@ -696,64 +682,78 @@ export default function App() {
                 navigator.clipboard.writeText(d.markdown || "").then(() => showToast("Resume copied to clipboard!", "success"));
               } catch { showToast("Failed to generate resume", "error"); }
             }}
-            className="text-xs font-medium px-[8px] py-[4px] rounded-md bg-gradient-to-r from-success/10 to-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors cursor-pointer"
+            className="toolbar-btn text-primary border-primary/20 bg-primary/5 hover:bg-primary/10"
           >
             📄 YC Resume
           </button>
         </div>
 
         {topPicks.length > 0 && (
-          <div className="mb-6 p-4 bg-gradient-to-r from-yellow-50/5 to-amber-50/5 border border-yellow-200/20 rounded-lg">
-            <div className="flex items-center justify-between mb-3">
+          <section className="mb-8 rise-in" style={{ animationDelay: "0.04s" }}>
+            <div className="flex items-center justify-between mb-3.5">
               <h2 className="text-[15px] font-semibold tracking-[-0.01em] flex items-center gap-2">
-                <span>🏆</span> Top Picks for You
+                <span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded-md bg-primary/15 text-primary text-[10px]">★</span>
+                Top Picks for You
               </h2>
               <span className="text-[11px] text-ink-tertiary">
                 Ranked by repo prestige · label quality · difficulty
               </span>
             </div>
-            <div className="flex flex-col gap-[10px]">
+            <div className="flex flex-col gap-3">
               {topPicks.map((issue) => (
-                <IssueCard key={`pick-${issue.id}`} issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} selectMode={false} selected={false} onToggleSelect={() => {}} />
+                <div key={`pick-${issue.id}`} className="rise-in" style={{ animationDelay: "0.08s" }}>
+                  <IssueCard issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} selectMode={false} selected={false} onToggleSelect={() => {}} />
+                </div>
               ))}
             </div>
-          </div>
+          </section>
         )}
 
         {displayPriority.length > 0 && (
-          <div className="mb-6 rounded-xl border border-warning/30 overflow-hidden">
-            <div className="bg-warning/10 px-5 py-3 flex items-center gap-3">
-              <span className="w-[8px] h-[8px] rounded-full bg-warning animate-pulse" />
-              <h2 className="text-[16px] font-bold tracking-[-0.01em] text-warning">
+          <section className="mb-8 rise-in" style={{ animationDelay: "0.06s" }}>
+            <div className="flex items-center gap-3 mb-3.5">
+              <span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded-md bg-warning/15 text-warning">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.26 6.6.96-4.75 4.63 1.12 6.55L12 17.43l-5.87 2.97 1.12-6.55L2.5 9.22l6.6-.96L12 2z"/></svg>
+              </span>
+              <h2 className="text-[15px] font-semibold tracking-[-0.01em]">
                 Priority Issues
               </h2>
-              <span className="text-[11px] text-ink-tertiary ml-auto">
-                {displayPriority.length} issues from tracked repos & orgs
+              <span className="text-[11px] text-ink-tertiary ml-auto tabular-nums">
+                {displayPriority.length} issues from tracked repos &amp; orgs
               </span>
             </div>
-            <div className="flex flex-col gap-[10px] p-4 bg-warning/[0.03]">
+            <div className="flex flex-col gap-3">
               {displayPriority.map((issue) => (
-                <IssueCard key={issue.id} issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} selectMode={selectMode} selected={selectedIds.has(issue.id)} onToggleSelect={toggleSelect} />
+                <div key={issue.id} className="rise-in" style={{ animationDelay: "0.08s" }}>
+                  <IssueCard issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} selectMode={selectMode} selected={selectedIds.has(issue.id)} onToggleSelect={toggleSelect} />
+                </div>
               ))}
             </div>
-          </div>
+          </section>
         )}
 
-        <h2 className="text-[15px] font-semibold tracking-[-0.01em] mb-3 text-ink-muted">
-          General Feed
-        </h2>
+        <div className="flex items-center justify-between mb-3.5 mt-2">
+          <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-ink-muted">
+            General Feed
+          </h2>
+          <span className="text-[11px] text-ink-tertiary tabular-nums">
+            {displayIssues.length} issues
+          </span>
+        </div>
 
-        <div className="flex flex-col gap-[10px]">
+        <div className="flex flex-col gap-3">
           {displayIssues.length === 0 ? (
-            <div className="text-center py-16 text-ink-subtle">
+            <div className="text-center py-20 text-ink-subtle border border-dashed border-hairline-strong rounded-2xl rise-in">
               <p className="text-[14px] mb-1">No issues match your filters</p>
               <span className="text-[12px] text-ink-tertiary">
                 Try adjusting the search or filter criteria.
               </span>
             </div>
           ) : (
-            displayIssues.map((issue) => (
-              <IssueCard key={issue.id} issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} selectMode={selectMode} selected={selectedIds.has(issue.id)} onToggleSelect={toggleSelect} />
+            displayIssues.map((issue, i) => (
+              <div key={issue.id} className="rise-in" style={{ animationDelay: `${Math.min(i * 0.03, 0.24)}s` }}>
+                <IssueCard issue={issue} onTriageClick={handleTriageClick} showToast={showToast} onDismiss={handleDismiss} selectMode={selectMode} selected={selectedIds.has(issue.id)} onToggleSelect={toggleSelect} />
+              </div>
             ))
           )}
         </div>
@@ -762,7 +762,7 @@ export default function App() {
           <button
             onClick={() => setPage((p) => Math.max(0, p - 1))}
             disabled={page === 0 || isFetchingPage}
-            className="px-3 py-1.5 text-[12px] rounded-md border border-hairline text-ink-muted hover:text-ink disabled:opacity-40 disabled:hover:text-ink-muted"
+            className="toolbar-btn text-ink-muted border-hairline hover:text-ink disabled:opacity-40 disabled:hover:text-ink-muted"
           >
             ← Prev
           </button>
@@ -773,7 +773,7 @@ export default function App() {
           <button
             onClick={() => setPage((p) => p + 1)}
             disabled={!hasNextPage || isFetchingPage}
-            className="px-3 py-1.5 text-[12px] rounded-md border border-line text-ink-muted hover:text-ink disabled:opacity-40 disabled:hover:text-ink-muted"
+            className="toolbar-btn text-ink-muted border-hairline hover:text-ink disabled:opacity-40 disabled:hover:text-ink-muted"
           >
             Next →
           </button>
@@ -788,16 +788,16 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 z-50" onClick={() => setShowResume(false)} />
       )}
       {showResume && (
-        <div className="fixed top-0 right-0 w-[600px] max-w-[90vw] h-full bg-surface-1 border-l border-hairline z-50 flex flex-col shadow-2xl">
+        <div className="fixed top-0 right-0 w-[600px] max-w-[90vw] h-full bg-surface-1 border-l border-hairline z-50 flex flex-col shadow-2xl panel-in">
           <div className="flex items-center justify-between px-5 py-4 border-b border-hairline shrink-0">
             <h2 className="text-[14px] font-semibold">📄 YC Resume (Last 7 Days)</h2>
-            <button onClick={() => setShowResume(false)} className="w-[28px] h-[28px] flex items-center justify-center rounded-md border border-hairline text-ink-tertiary hover:text-ink">✕</button>
+            <button onClick={() => setShowResume(false)} className="panel-close">✕</button>
           </div>
           <pre className="flex-1 overflow-y-auto p-5 text-[12px] text-ink-muted leading-relaxed whitespace-pre-wrap font-mono bg-canvas">{resumeMd}</pre>
           <div className="px-5 py-3 border-t border-hairline shrink-0">
             <button
               onClick={() => { navigator.clipboard.writeText(resumeMd); showToast("Resume copied!", "success"); }}
-              className="text-xs font-medium px-[12px] py-[6px] rounded-md bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none"
+              className="text-xs font-medium px-[12px] py-[6px] rounded-lg bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none"
             >
               📋 Copy Markdown
             </button>

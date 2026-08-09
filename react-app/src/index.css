@@ -1,46 +1,169 @@
 @import "tailwindcss";
 
 @theme {
-  --color-canvas: #010102;
-  --color-surface-1: #0f1011;
-  --color-surface-2: #141516;
-  --color-surface-3: #18191a;
-  --color-ink: #f7f8f8;
-  --color-ink-muted: #d0d6e0;
-  --color-ink-subtle: #8a8f98;
-  --color-ink-tertiary: #62666d;
-  --color-primary: #5e6ad2;
-  --color-primary-hover: #828fff;
-  --color-primary-focus: #5e69d1;
-  --color-hairline: #23252a;
-  --color-hairline-strong: #34343a;
-  --color-success: #27a644;
-  --color-warning: #f5c842;
-  --color-error: #e5484d;
+  --color-canvas: #07090b;
+  --color-surface-1: #0c0f12;
+  --color-surface-2: #11151a;
+  --color-surface-3: #171c22;
+  --color-ink: #e7ebef;
+  --color-ink-muted: #aab4bd;
+  --color-ink-subtle: #6f7a85;
+  --color-ink-tertiary: #4c565f;
+  --color-primary: #4fe3a1;
+  --color-primary-hover: #74eeba;
+  --color-primary-focus: #35d18e;
+  --color-hairline: #1b2127;
+  --color-hairline-strong: #272e36;
+  --color-success: #39d98a;
+  --color-warning: #eab308;
+  --color-error: #f87171;
 
-  --font-sans: "Inter", system-ui, sans-serif;
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  --radius-xs: 5px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.02) inset, 0 8px 24px -16px rgb(0 0 0 / 0.7);
+  --shadow-pop: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 24px 60px -20px rgb(0 0 0 / 0.8);
+}
+
+html {
+  color-scheme: dark;
 }
 
 body {
   font-family: var(--font-sans);
-  background: var(--color-canvas);
+  background-color: var(--color-canvas);
+  background-image:
+    radial-gradient(900px 480px at 12% -8%, rgb(79 227 161 / 0.06), transparent 60%),
+    radial-gradient(760px 420px at 100% 0%, rgb(79 227 161 / 0.04), transparent 55%),
+    linear-gradient(180deg, #0a0d11 0%, var(--color-canvas) 40%);
+  background-attachment: fixed;
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04";
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-hairline) transparent;
+  scrollbar-color: var(--color-hairline-strong) transparent;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+::selection {
+  background: rgb(79 227 161 / 0.24);
+  color: #eafff6;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-hairline-strong);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes paneIn {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.82); }
+}
+
+.rise-in {
+  animation: fadeUp 0.45s cubic-bezier(0.2, 0.75, 0.4, 1) both;
+}
+
+.panel-in {
+  animation: paneIn 0.3s cubic-bezier(0.2, 0.75, 0.4, 1) both;
+}
+
+.live-dot {
+  animation: pulseDot 1.6s ease-in-out infinite;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.select-mini {
+  background-color: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-sm);
+  padding: 7px 28px 7px 10px;
+  font-size: 12px;
+  color: var(--color-ink);
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236f7a85' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  transition: border-color 0.15s ease;
+}
+.select-mini:hover {
+  border-color: var(--color-hairline-strong);
+}
+.select-mini:focus {
+  border-color: var(--color-primary-focus);
+  border-radius: var(--radius-xs);
+}
+
+.toolbar-btn {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-canvas);
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  cursor: pointer;
+}
+
+.panel-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-hairline);
+  color: var(--color-ink-tertiary);
+  background-color: transparent;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+.panel-close:hover {
+  color: var(--color-ink);
+  background-color: var(--color-surface-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise-in, .panel-in, .live-dot {
+    animation: none;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
 }
