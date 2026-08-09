@@ -398,23 +398,6 @@ export default function App() {
     setOffset(0);
   }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed]);
 
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loadingMore.current) {
-          loadingMore.current = true;
-          handleLoadMore();
-          setTimeout(() => { loadingMore.current = false; }, 800);
-        }
-      },
-      { rootMargin: "400px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [handleLoadMore, hasMore]);
-
   const handleRefresh = useCallback(() => {
     loadIssues();
     loadStats();
@@ -436,6 +419,23 @@ export default function App() {
     setOffset(nextOffset);
     loadIssues(true, nextOffset);
   }, [loadIssues]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore.current) {
+          loadingMore.current = true;
+          handleLoadMore();
+          setTimeout(() => { loadingMore.current = false; }, 800);
+        }
+      },
+      { rootMargin: "400px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [handleLoadMore, hasMore]);
 
   const handleTriageClick = useCallback((issue) => {
     setPanelIssue(issue);
