@@ -156,6 +156,9 @@ export default function App() {
 
   const loadRef = useRef(0);
   const knownIds = useRef(new Set());
+  const pageCursor = useRef(0);
+  const sentinelRef = useRef(null);
+  const loadingMore = useRef(false);
 
   const showToast = useCallback((message, type = "info", action = null) => {
     setToast({ message, type, action });
@@ -259,11 +262,10 @@ export default function App() {
     writeFilters({ filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, filterBounty, searchQuery, sortBy });
   }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, filterBounty, searchQuery, sortBy]);
 
-  const loadIssues = useCallback(async (append = false) => {
+  const loadIssues = useCallback(async (append = false, pageOffset = 0) => {
     const id = ++loadRef.current;
     const params = { limit: PAGE_SIZE };
-    if (!append) params.offset = 0;
-    else params.offset = offset;
+    params.offset = append ? pageOffset : 0;
     if (filterLang) params.language = filterLang;
     if (filterStatus) params.status = filterStatus;
     if (filterDiff) params.difficulty = filterDiff;
@@ -279,8 +281,14 @@ export default function App() {
       const list = data.issues || [];
       setHasMore(list.length >= PAGE_SIZE);
       if (append) {
-        setPriorityIssues((prev) => [...prev, ...list.filter((i) => i.is_priority)]);
-        setIssues((prev) => [...prev, ...list.filter((i) => !i.is_priority)]);
+        setPriorityIssues((prev) => {
+          const seen = new Set(prev.map((i) => i.id));
+          return [...prev, ...list.filter((i) => i.is_priority && !seen.has(i.id))];
+        });
+        setIssues((prev) => {
+          const seen = new Set(prev.map((i) => i.id));
+          return [...prev, ...list.filter((i) => !i.is_priority && !seen.has(i.id))];
+        });
       } else {
         setPriorityIssues(list.filter((i) => i.is_priority));
         setIssues(list.filter((i) => !i.is_priority));
@@ -385,9 +393,27 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    pageCursor.current = 0;
     loadIssues();
     setOffset(0);
   }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore.current) {
+          loadingMore.current = true;
+          handleLoadMore();
+          setTimeout(() => { loadingMore.current = false; }, 800);
+        }
+      },
+      { rootMargin: "400px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [handleLoadMore, hasMore]);
 
   const handleRefresh = useCallback(() => {
     loadIssues();
@@ -405,8 +431,10 @@ export default function App() {
   }, [showToast]);
 
   const handleLoadMore = useCallback(() => {
-    setOffset((prev) => prev + PAGE_SIZE);
-    loadIssues(true);
+    const nextOffset = pageCursor.current + PAGE_SIZE;
+    pageCursor.current = nextOffset;
+    setOffset(nextOffset);
+    loadIssues(true, nextOffset);
   }, [loadIssues]);
 
   const handleTriageClick = useCallback((issue) => {
@@ -763,14 +791,12 @@ export default function App() {
           )}
         </div>
 
-        {hasMore && displayIssues.length > 0 && (
-          <button
-            onClick={handleLoadMore}
-            className="w-full mt-4 text-[13px] font-medium px-[14px] py-[9px] rounded-md bg-surface-1 text-ink-muted border border-hairline hover:bg-surface-2 hover:text-ink transition-colors cursor-pointer"
-          >
-            Load More
-          </button>
-        )}
+        <div ref={sentinelRef} className="h-16 w-full flex items-center justify-center">
+          {hasMore && <span className="text-[12px] text-ink-tertiary animate-pulse">Loading more issues…</span>}
+          {!hasMore && displayIssues.length > 0 && (
+            <span className="text-[12px] text-ink-tertiary">You've reached the end of the feed</span>
+          )}
+        </div>
       </main>
 
       {panelIssue && (
