@@ -9,7 +9,7 @@ import httpx
 
 from config.settings import settings
 from daemon.rate_limiter import GitHubRateLimiter
-from db.store import get_last_poll_time, get_preferences, get_priority_repos
+from db.store import get_general_repos, get_last_poll_time, get_preferences, get_priority_repos, is_priority_repo
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +93,12 @@ def build_search_query(
         parts.append("comments:0")
     if min_stars > 0:
         parts.append(f"stars:>{min_stars}")
+
+    for prio in get_priority_repos():
+        if prio.get("is_org"):
+            parts.append(f"-org:{prio['owner']}")
+        else:
+            parts.append(f"-repo:{prio['full_name']}")
 
     langs = prefs.get("languages") or []
     for lang in langs:
@@ -354,37 +360,37 @@ class GitHubPoller:
         await self._client.aclose()
 
     async def fetch_issues(self) -> tuple[list[dict[str, Any]], int, str | None]:
-        prefs = get_preferences()
         cutoff = progressive_cutoff_utc()
-        query = build_search_query(prefs, cutoff)
-        all_items, total_count, search_ok = await self._search_pages(query)
+        repos = get_general_repos()
+        if not repos:
+            logger.warning("No general-feed repos configured — skipping general fetch")
+            return [], 0, "No general-feed repos configured"
 
-        if not search_ok:
-            logger.warning("GitHub search unavailable this cycle — skipping fetch")
-            return [], 0, "GitHub search rate limited — will retry next poll"
+        all_issues: list[dict[str, Any]] = []
+        total_count = 0
 
-        logger.info(
-            "GitHub search: total_count=%d, raw_items=%d, query=%s",
-            total_count,
-            len(all_items),
-            query,
-        )
+        for r in repos:
+            full_name = r["full_name"]
+            if is_priority_repo(full_name):
+                logger.debug("Skipping %s in general fetch — already in priority scope", full_name)
+                continue
+            query = build_priority_query(full_name, cutoff)
+            repo_issues, page_total, search_ok = await self._search_pages(query, max_pages=1)
+            if not search_ok:
+                logger.warning("Search unavailable for %s — skipping this cycle", full_name)
+                continue
+            total_count += page_total
 
-        pristine_items = [item for item in all_items if passes_claim_verification(item, cutoff)]
-        rejected = len(all_items) - len(pristine_items)
-        if rejected:
-            logger.info(
-                "Claim verification rejected %d issue(s) (assigned, commented, linked PR, or stale)",
-                rejected,
-            )
+            for item in repo_issues:
+                if not passes_claim_verification(item, cutoff):
+                    continue
+                issue = await self._normalize_issue(item, is_priority=False)
+                if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):
+                    issue["is_priority"] = False
+                    issue["is_high_priority"] = False
+                    all_issues.append(issue)
 
-        normalized = []
-        for item in pristine_items:
-            issue = await self._normalize_issue(item, is_priority=False)
-            if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):
-                normalized.append(issue)
-
-        return normalized, total_count, None
+        return all_issues, total_count, None
 
     async def _fetch_repo_issues(
         self,
@@ -616,4 +622,5 @@ class GitHubPoller:
             "comments": issue.get("comments", 0),
             "assignees": issue.get("assignees") or [],
             "assignee": issue.get("assignee"),
+            "is_priority": is_priority_repo(repo_full_name),
         }

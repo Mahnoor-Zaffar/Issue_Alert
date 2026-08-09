@@ -985,6 +985,104 @@ def remove_priority_repo(repo_id: int) -> bool:
         return cursor.rowcount > 0
 
 
+def clear_priority_repos() -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM priority_repos")
+
+
+def replace_priority_repos(full_names: list[str]) -> list[dict[str, Any]]:
+    clear_priority_repos()
+    added: list[dict[str, Any]] = []
+    for full_name in full_names:
+        result = add_priority_repo(full_name)
+        if result:
+            added.append(result)
+    return added
+
+
+def is_priority_repo(full_name: str) -> bool:
+    owner = full_name.split("/", 1)[0] if "/" in full_name else full_name
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM priority_repos WHERE full_name = ? OR (is_org = 1 AND owner = ?) LIMIT 1",
+            (full_name, owner),
+        ).fetchone()
+        return row is not None
+
+
+def resync_issue_priority_flags() -> int:
+    with get_connection() as conn:
+        conn.execute("UPDATE issues SET is_priority = 0")
+        updated = 0
+        for full_name, is_org in conn.execute("SELECT full_name, is_org FROM priority_repos").fetchall():
+            if is_org:
+                cur = conn.execute(
+                    "UPDATE issues SET is_priority = 1 WHERE repo_full_name LIKE ?",
+                    (full_name + "/%",),
+                )
+            else:
+                cur = conn.execute(
+                    "UPDATE issues SET is_priority = 1 WHERE repo_full_name = ?",
+                    (full_name,),
+                )
+            updated += cur.rowcount
+        return updated
+
+
+# ── General Repos (general feed scope) ──────────────────────
+
+
+def get_general_repos() -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, owner, repo, full_name, added_at FROM general_repos ORDER BY added_at"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_general_repo(full_name: str) -> dict[str, Any] | None:
+    parts = full_name.strip().split("/")
+    if len(parts) != 2:
+        return None
+    owner, repo = parts
+    with get_connection() as conn:
+        try:
+            cursor = conn.execute(
+                "INSERT INTO general_repos (owner, repo, full_name) VALUES (?, ?, ?)",
+                (owner, repo, full_name),
+            )
+            return {
+                "id": cursor.lastrowid,
+                "owner": owner,
+                "repo": repo,
+                "full_name": full_name,
+                "is_org": False,
+            }
+        except sqlite3.IntegrityError:
+            return None
+
+
+def remove_general_repo(repo_id: int) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM general_repos WHERE id = ?", (repo_id,))
+        return cursor.rowcount > 0
+
+
+def clear_general_repos() -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM general_repos")
+
+
+def replace_general_repos(full_names: list[str]) -> list[dict[str, Any]]:
+    clear_general_repos()
+    added: list[dict[str, Any]] = []
+    for full_name in full_names:
+        result = add_general_repo(full_name)
+        if result:
+            added.append(result)
+    return added
+
+
 def set_issue_difficulty(issue_id: int, difficulty: str | None) -> bool:
     if difficulty not in ("easy", "medium", "hard", None):
         return False

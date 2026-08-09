@@ -5,6 +5,9 @@ import {
   fetchPriorityRepos,
   addPriorityRepo,
   removePriorityRepo,
+  fetchGeneralRepos,
+  addGeneralRepo,
+  removeGeneralRepo,
   fetchRateLimit,
   fetchDaemonLog,
 } from "../api";
@@ -14,6 +17,8 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
   const [prefs, setPrefs] = useState(null);
   const [priorityRepos, setPriorityRepos] = useState([]);
   const [repoInput, setRepoInput] = useState("");
+  const [generalRepos, setGeneralRepos] = useState([]);
+  const [generalInput, setGeneralInput] = useState("");
   const [rateLimit, setRateLimit] = useState(null);
   const [logLines, setLogLines] = useState([]);
   const [logExpanded, setLogExpanded] = useState(true);
@@ -22,6 +27,7 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
   useEffect(() => {
     fetchPreferences().then(setPrefs).catch(() => {});
     fetchPriorityRepos().then((d) => setPriorityRepos(d.repos || [])).catch(() => {});
+    fetchGeneralRepos().then((d) => setGeneralRepos(d.repos || [])).catch(() => {});
     const loadRL = () => fetchRateLimit().then(setRateLimit).catch(() => {});
     loadRL();
     const iv = setInterval(loadRL, 30000);
@@ -77,6 +83,28 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
     try {
       await removePriorityRepo(id);
       setPriorityRepos((prev) => prev.filter((r) => r.id !== id));
+    } catch {
+      showToast("Failed to remove repo", "error");
+    }
+  }, [showToast]);
+
+  const handleAddGeneral = useCallback(async () => {
+    const name = generalInput.trim();
+    if (!name) return;
+    try {
+      const result = await addGeneralRepo(name);
+      setGeneralRepos((prev) => [...prev, result]);
+      setGeneralInput("");
+      showToast(`Added ${name} to feed`, "success");
+    } catch {
+      showToast("Failed to add repo", "error");
+    }
+  }, [generalInput, showToast]);
+
+  const handleRemoveGeneral = useCallback(async (id) => {
+    try {
+      await removeGeneralRepo(id);
+      setGeneralRepos((prev) => prev.filter((r) => r.id !== id));
     } catch {
       showToast("Failed to remove repo", "error");
     }
@@ -228,6 +256,48 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
                   <span className="truncate">{r.full_name}</span>
                   <button
                     onClick={() => handleRemoveRepo(r.id)}
+                    className="shrink-0 text-ink-tertiary hover:text-error transition-colors bg-transparent border-none cursor-pointer text-[12px] leading-none px-[4px]"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </details>
+
+      {/* General feed repos */}
+      <details className="rounded-[12px] border border-hairline bg-surface-1/60 [&>summary]:list-none overflow-hidden">
+        <summary className="flex items-center justify-between text-[11px] font-semibold text-ink-muted px-3 py-2.5 cursor-pointer hover:text-ink transition-colors select-none">
+          <span>Feed Repos</span>
+          <span className="text-[10px] text-ink-tertiary tabular-nums">{generalRepos.length}</span>
+        </summary>
+        <div className="px-3 pb-3 space-y-1.5 border-t border-hairline pt-2">
+          <div style={{ display: "flex", gap: "6px" }}>
+            <input
+              value={generalInput}
+              onChange={(e) => setGeneralInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAddGeneral()}
+              placeholder="owner/repo"
+              className="flex-1 bg-canvas border border-hairline rounded-[8px] px-2 py-[6px] text-[11px] text-ink outline-none focus:border-primary-focus/50 placeholder:text-ink-tertiary"
+            />
+            <button
+              onClick={handleAddGeneral}
+              className="shrink-0 text-[13px] font-medium w-[28px] rounded-[8px] bg-primary text-white hover:bg-primary-hover transition-colors border-none cursor-pointer"
+            >
+              +
+            </button>
+          </div>
+          <div className="text-[11px] text-ink-muted space-y-[2px] max-h-[140px] overflow-y-auto text-[10.5px]">
+            {generalRepos.length === 0 ? (
+              <span className="text-ink-tertiary">No feed repos</span>
+            ) : (
+              generalRepos.map((r) => (
+                <div key={r.id} className="flex items-center justify-between py-[2px]">
+                  <span className="truncate">{r.full_name}</span>
+                  <button
+                    onClick={() => handleRemoveGeneral(r.id)}
                     className="shrink-0 text-ink-tertiary hover:text-error transition-colors bg-transparent border-none cursor-pointer text-[12px] leading-none px-[4px]"
                   >
                     ✕

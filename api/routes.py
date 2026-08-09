@@ -19,12 +19,14 @@ from sse_starlette.sse import EventSourceResponse
 from config.settings import settings
 from db.rate_limit_store import read_rate_limit
 from db.store import (
+    add_general_repo,
     add_priority_repo,
     clear_all_data,
     dismiss_repo_issues,
     enqueue_triage,
     enqueue_webhook,
     generate_pr_description,
+    get_general_repos,
     get_issue,
     get_issues_updated_since,
     get_personal_stats,
@@ -36,6 +38,7 @@ from db.store import (
     get_top_picks,
     list_issues,
     mark_issue_viewed,
+    remove_general_repo,
     remove_priority_repo,
     request_poll,
     save_pr_info,
@@ -572,6 +575,27 @@ async def api_add_priority_repo(body: RepoBody):
 @router.delete("/api/priority-repos/{repo_id}")
 async def api_remove_priority_repo(repo_id: int):
     if not remove_priority_repo(repo_id):
+        raise HTTPException(status_code=404, detail="Repo not found")
+    return {"removed": True}
+
+
+@router.get("/api/general-repos")
+async def api_get_general_repos():
+    return {"repos": get_general_repos()}
+
+
+@router.post("/api/general-repos")
+async def api_add_general_repo(body: RepoBody):
+    result = add_general_repo(body.full_name)
+    if result is None:
+        raise HTTPException(status_code=400, detail="Invalid or duplicate repo (format: owner/repo)")
+    request_poll()
+    return result
+
+
+@router.delete("/api/general-repos/{repo_id}")
+async def api_remove_general_repo(repo_id: int):
+    if not remove_general_repo(repo_id):
         raise HTTPException(status_code=404, detail="Repo not found")
     return {"removed": True}
 

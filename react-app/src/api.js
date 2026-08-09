@@ -113,6 +113,18 @@ export function removePriorityRepo(id) {
   return del(`/api/priority-repos/${id}`);
 }
 
+export function fetchGeneralRepos() {
+  return get("/api/general-repos");
+}
+
+export function addGeneralRepo(fullName) {
+  return post("/api/general-repos", { full_name: fullName });
+}
+
+export function removeGeneralRepo(id) {
+  return del(`/api/general-repos/${id}`);
+}
+
 export function fetchRateLimit() {
   return get("/api/rate-limit");
 }
