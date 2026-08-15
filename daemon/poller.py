@@ -162,9 +162,13 @@ def detect_bounty(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def has_good_issue_label(item: dict[str, Any]) -> bool:
-    """Require 'good first issue' or 'help wanted' on every surfaced issue."""
+    """Require at least one preferred label (good first issue / help wanted / bug / enhancement)."""
+    prefs = get_preferences()
+    preferred = {label.lower() for label in (prefs.get("labels") or [])}
+    if not preferred:
+        preferred = set(_GOOD_ISSUE_LABELS)
     labels = [label["name"].lower() for label in item.get("labels", [])]
-    return bool(_GOOD_ISSUE_LABELS & set(labels))
+    return bool(preferred & set(labels))
 
 
 def passes_claim_verification(
