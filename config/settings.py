@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     max_issue_comments: int = 3
     max_file_bytes: int = 20000
     api_host: str = "127.0.0.1"
-    api_port: int = 8000
+    api_port: int = 8090
     min_repo_stars: int = 1000
     github_webhook_secret: str = ""
     search_per_page: int = 100

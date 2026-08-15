@@ -3,8 +3,8 @@ set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
-# Kill any existing processes on port 8000
-lsof -ti :8000 2>/dev/null | xargs kill -9 2>/dev/null || true
+# Kill any existing processes on port 8090
+lsof -ti :8090 2>/dev/null | xargs kill -9 2>/dev/null || true
 
 # Kill existing daemon
 [ -f .daemon.pid ] && kill $(cat .daemon.pid) 2>/dev/null || true
@@ -27,8 +27,8 @@ nohup .venv/bin/python -m daemon.main > /dev/null 2>&1 &
 echo $! > .daemon.pid
 
 echo "Starting API server..."
-nohup .venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 > /dev/null 2>&1 &
+nohup .venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8090 > /dev/null 2>&1 &
 echo $! > .api.pid
 
 sleep 2
-echo "Ready at http://localhost:8000"
+echo "Ready at http://localhost:8090"

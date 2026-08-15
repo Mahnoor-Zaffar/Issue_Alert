@@ -461,6 +461,13 @@ async def run() -> None:
         "prometheus/prometheus",
         "kubernetes/kubernetes",
         "docker/compose",
+        "numpy/numpy",
+        "scipy/scipy",
+        "pandas-dev/pandas",
+        "sktime/sktime",
+        "pgmpy/pgmpy",
+        "skrub/skrub",
+        "apache/hive",
     ]
     replace_priority_repos(priority_repos)
 
@@ -491,10 +498,7 @@ async def run() -> None:
         "temporalio/sdk-python",
         "dask/dask",
         "pola-rs/polars",
-        "pandas-dev/pandas",
-        "numpy/numpy",
         "scikit-learn/scikit-learn",
-        "sktime/sktime",
         "pytorch/pytorch",
         "huggingface/tokenizers",
         "huggingface/accelerate",

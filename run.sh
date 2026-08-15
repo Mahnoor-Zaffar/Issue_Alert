@@ -23,8 +23,8 @@ echo "Starting daemon..."
 .venv/bin/python -m daemon.main &
 DAEMON_PID=$!
 
-echo "Starting dashboard on http://127.0.0.1:8000 ..."
-.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 &
+echo "Starting dashboard on http://127.0.0.1:8090 ..."
+.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8090 &
 API_PID=$!
 
 cleanup() {

@@ -11,9 +11,9 @@ COPY . .
 
 RUN mkdir -p data
 
-EXPOSE 8000
+EXPOSE 8090
 
 CMD ["sh", "-c", "\
   python -m daemon.main & \
-  exec uvicorn api.main:app --host 0.0.0.0 --port 8000 \
+  exec uvicorn api.main:app --host 0.0.0.0 --port 8090 \
 "]

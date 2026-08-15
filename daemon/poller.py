@@ -22,6 +22,8 @@ _CLAIMED_BODY_RE = re.compile(
     re.IGNORECASE,
 )
 
+_GOOD_ISSUE_LABELS = frozenset({"good first issue", "good-first-issue", "help wanted", "help-wanted"})
+
 _BOUNTY_LABELS = frozenset(
     {
         "bounty",
@@ -157,6 +159,12 @@ def detect_bounty(item: dict[str, Any]) -> dict[str, Any]:
                 pass
 
     return {"is_bounty": is_bounty, "bounty_amount": amount}
+
+
+def has_good_issue_label(item: dict[str, Any]) -> bool:
+    """Require 'good first issue' or 'help wanted' on every surfaced issue."""
+    labels = [label["name"].lower() for label in item.get("labels", [])]
+    return bool(_GOOD_ISSUE_LABELS & set(labels))
 
 
 def passes_claim_verification(
@@ -384,6 +392,8 @@ class GitHubPoller:
             for item in repo_issues:
                 if not passes_claim_verification(item, cutoff):
                     continue
+                if not has_good_issue_label(item):
+                    continue
                 issue = await self._normalize_issue(item, is_priority=False)
                 if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):
                     issue["is_priority"] = False
@@ -410,6 +420,8 @@ class GitHubPoller:
         for item in items:
             passed = passes_claim_verification(item, cutoff, is_priority=is_priority)
             if not passed:
+                continue
+            if not has_good_issue_label(item):
                 continue
             issue = await self._normalize_issue(item, is_priority=True)
             if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):

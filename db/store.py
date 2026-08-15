@@ -217,12 +217,27 @@ def compute_top_pick_score(issue: dict[str, Any]) -> float:
     comments = issue.get("comments") or 0
     freshness = max(0.0, 1.0 - comments * 0.05)
 
+    age_hours = None
+    raw_created = issue.get("github_created_at") or issue.get("created_at")
+    if raw_created:
+        try:
+            created = datetime.fromisoformat(str(raw_created).replace("Z", "+00:00"))
+            age_hours = max(0.0, (datetime.now(timezone.utc) - created).total_seconds() / 3600.0)
+        except ValueError, TypeError:
+            age_hours = None
+    recency = 1.0
+    if age_hours is not None:
+        recency = max(0.0, min(1.0, 1.0 - age_hours / 168.0))
+
     body_len = len((issue.get("body") or "").strip())
     quality = min(body_len / 500.0, 1.0)
 
     bounty_bonus = 1.5 if issue.get("is_bounty") else 1.0
 
-    return round(prestige * label_score * difficulty_bonus * freshness * bounty_bonus * (0.5 + 0.5 * quality) * 100, 1)
+    return round(
+        prestige * label_score * difficulty_bonus * freshness * recency * bounty_bonus * (0.5 + 0.5 * quality) * 100,
+        1,
+    )
 
 
 def get_top_picks(limit: int = 3) -> list[dict[str, Any]]:

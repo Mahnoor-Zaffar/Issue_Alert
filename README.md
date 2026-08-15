@@ -108,7 +108,7 @@ chmod +x start.sh
 ./start.sh
 ```
 
-Open **http://localhost:8000**.
+Open **http://localhost:8090**.
 
 ### Development Mode
 
@@ -121,10 +121,10 @@ python -m daemon.main
 
 # Terminal 2 — API server
 source .venv/bin/activate
-uvicorn api.main:app --host 127.0.0.1 --port 8000
+uvicorn api.main:app --host 127.0.0.1 --port 8090
 ```
 
-For frontend development, start the Vite dev server from `react-app/` — it proxies `/api` to `localhost:8000`:
+For frontend development, start the Vite dev server from `react-app/` — it proxies `/api` to `localhost:8090`:
 
 ```bash
 cd react-app
@@ -148,7 +148,7 @@ Environment-driven configuration via `.env` (see `.env.example`):
 | `MAX_ISSUE_COMMENTS` | No | `5` | Max commentary before considered claimed (`0` = untouched) |
 | `MIN_REPO_STARS` | No | `1000` | Star threshold for candidate repos |
 | `DATABASE_PATH` | No | `./data/triage.db` | SQLite location |
-| `API_HOST` / `API_PORT` | No | `127.0.0.1` / `8000` | Bind address |
+| `API_HOST` / `API_PORT` | No | `127.0.0.1` / `8090` | Bind address |
 
 Discovery preferences are also editable from the **Preferences** panel at runtime.
 
@@ -270,7 +270,7 @@ cd react-app && npm run build
 | Symptom | Likely cause | Resolution |
 |---------|--------------|------------|
 | `command not found: python` | venv not activated | `source .venv/bin/activate` |
-| `address already in use :8000` | Stale API process | `./stop.sh` then restart |
+| `address already in use :8090` | Stale API process | `./stop.sh` then restart |
 | `0 fetched, 0 new` | Overly restrictive discovery query | Lower min stars / broaden labels |
 | Triage status `error` | Invalid or expired LLM key | Verify `LLM_API_KEY` |
 | Missing desktop notifications | Backend notification bridge unavailable | Non-fatal; issues still process |
