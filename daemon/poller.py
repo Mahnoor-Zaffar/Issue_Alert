@@ -568,9 +568,10 @@ class GitHubPoller:
             language = self._detect_language_from_text(labels, item.get("title", ""))
 
         stars = repo.get("stargazers_count", 0)
-        if not language and is_priority:
+        if not stars:
             repo_info = await self._fetch_repo_info(repo_full_name)
-            language = repo_info.get("language")
+            if not language:
+                language = repo_info.get("language")
             stars = repo_info.get("stars", 0)
 
         return {

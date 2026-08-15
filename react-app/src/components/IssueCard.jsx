@@ -174,6 +174,26 @@ export default function IssueCard({ issue, onTriageClick, showToast, onDismiss, 
             </Badge>
           )}
 
+          {Array.isArray(issue.labels) && issue.labels.length > 0 && (
+            <span className="flex items-center gap-[4px] flex-wrap">
+              {issue.labels.map((lbl) => {
+                const isGood = /good first issue|help wanted/i.test(lbl);
+                const className = isGood
+                  ? "bg-success/15 text-success"
+                  : /bug/i.test(lbl)
+                    ? "bg-error/10 text-error"
+                    : /enhancement|feature/i.test(lbl)
+                      ? "bg-primary/10 text-primary-hover"
+                      : "bg-surface-2 text-ink-muted";
+                return (
+                  <Badge key={lbl} className={className}>
+                    {lbl}
+                  </Badge>
+                );
+              })}
+            </span>
+          )}
+
           {issue.is_priority && (
             <Badge className="bg-warning/10 text-warning">Priority</Badge>
           )}
