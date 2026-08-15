@@ -36,10 +36,12 @@ from db.store import (
     mark_webhook_processed,
     parse_difficulty,
     purge_stale_issues,
+    purge_untracked_repo_issues,
     record_daily_stats,
     replace_general_repos,
     replace_priority_repos,
     reset_retry_count,
+    resync_issue_priority_flags,
     update_issue_status,
     update_poll_state,
     update_pr_status,
@@ -542,6 +544,10 @@ async def run() -> None:
         "SWE-agent/SWE-agent",
     ]
     replace_general_repos(general_repos)
+    resync_issue_priority_flags()
+    purged_untracked = purge_untracked_repo_issues()
+    if purged_untracked:
+        logger.info("Purged %d issue(s) from repos no longer in the feed scope", purged_untracked)
 
     poller = GitHubPoller()
     triage_engine = TriageEngine()

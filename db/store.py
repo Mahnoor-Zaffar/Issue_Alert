@@ -438,6 +438,26 @@ def purge_stale_issues() -> int:
         return cursor.rowcount
 
 
+def purge_untracked_repo_issues() -> int:
+    """Delete issues whose repo is no longer in the priority or general feed scope."""
+    priority = {r["full_name"] for r in get_priority_repos()}
+    general = {r["full_name"] for r in get_general_repos()}
+    tracked = priority | general
+    if not tracked:
+        return 0
+    placeholders = ",".join("?" * len(tracked))
+    with get_connection() as conn:
+        cursor = conn.execute(
+            f"""
+            DELETE FROM issues
+            WHERE bookmarked = 0
+              AND repo_full_name NOT IN ({placeholders})
+            """,
+            list(tracked),
+        )
+        return cursor.rowcount
+
+
 # ── Difficulty ──────────────────────────────────────────
 
 
@@ -613,9 +633,8 @@ def list_issues(
     if bounty_only:
         clauses.append("i.is_bounty = 1")
     if hide_old_unclaimed:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         clauses.append("(i.claimed = 1 OR i.github_created_at IS NULL OR i.github_created_at >= ?)")
-        params.append(today)
+        params.append(_freshness_cutoff_iso())
 
     where = " AND ".join(clauses)
     params.extend([limit, offset])
