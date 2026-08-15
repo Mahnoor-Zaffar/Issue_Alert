@@ -434,27 +434,26 @@ async def run() -> None:
     init_db()
 
     # Priority scope: orgs (lowercase) + explicit owner/repo entries.
+    # Resume-builders are listed first and marked high priority (polled every cycle).
     priority_repos = [
-        "grayhatdevelopers",
-        "docker",
-        "vercel",
-        "Azure",
-        "nodejs",
         "vllm-project/vllm",
         "BerriAI/litellm",
         "langchain-ai/langgraph",
         "langchain-ai/langchain",
-        "crewAIInc/crewAI",
         "run-llama/llama_index",
-        "ray-project/ray",
         "fastapi/fastapi",
         "pydantic/pydantic",
+        "huggingface/transformers",
+        "huggingface/datasets",
+        "pandas-dev/pandas",
+        "numpy/numpy",
+        "pytorch/pytorch",
+        "scipy/scipy",
         "sqlalchemy/sqlalchemy",
         "postgres/postgres",
         "celery/celery",
         "redis/redis",
-        "huggingface/transformers",
-        "huggingface/datasets",
+        "ray-project/ray",
         "open-webui/open-webui",
         "qdrant/qdrant",
         "milvus-io/milvus",
@@ -463,15 +462,34 @@ async def run() -> None:
         "prometheus/prometheus",
         "kubernetes/kubernetes",
         "docker/compose",
-        "numpy/numpy",
-        "scipy/scipy",
-        "pandas-dev/pandas",
+        "crewAIInc/crewAI",
         "sktime/sktime",
         "pgmpy/pgmpy",
         "skrub/skrub",
         "apache/hive",
+        "grayhatdevelopers",
+        "docker",
+        "vercel",
+        "Azure",
+        "nodejs",
     ]
-    replace_priority_repos(priority_repos)
+    resume_repos = {
+        "vllm-project/vllm",
+        "BerriAI/litellm",
+        "langchain-ai/langgraph",
+        "langchain-ai/langchain",
+        "run-llama/llama_index",
+        "fastapi/fastapi",
+        "pydantic/pydantic",
+        "huggingface/transformers",
+        "huggingface/datasets",
+        "pandas-dev/pandas",
+        "numpy/numpy",
+        "pytorch/pytorch",
+        "scipy/scipy",
+        "sqlalchemy/sqlalchemy",
+    }
+    replace_priority_repos(priority_repos, high_priority=resume_repos)
 
     # General feed scope: specific owner/repo pairs polled directly
     # (no more broad GitHub search).
@@ -501,7 +519,6 @@ async def run() -> None:
         "dask/dask",
         "pola-rs/polars",
         "scikit-learn/scikit-learn",
-        "pytorch/pytorch",
         "huggingface/tokenizers",
         "huggingface/accelerate",
         "huggingface/peft",

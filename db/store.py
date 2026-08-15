@@ -241,7 +241,7 @@ def compute_top_pick_score(issue: dict[str, Any]) -> float:
 
 
 def get_top_picks(limit: int = 3) -> list[dict[str, Any]]:
-    issues = list_issues(limit=500, offset=0)
+    issues = list_issues(limit=500, offset=0, is_priority=True)
     for i in issues:
         i["top_pick_score"] = compute_top_pick_score(i)
     issues = [i for i in issues if i.get("top_pick_score", 0) > 0]
@@ -985,7 +985,7 @@ def get_priority_repos() -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
-def add_priority_repo(full_name: str) -> dict[str, Any] | None:
+def add_priority_repo(full_name: str, is_high_priority: bool = False) -> dict[str, Any] | None:
     parts = full_name.strip().split("/")
     if len(parts) == 1:
         owner = parts[0]
@@ -999,8 +999,8 @@ def add_priority_repo(full_name: str) -> dict[str, Any] | None:
     with get_connection() as conn:
         try:
             cursor = conn.execute(
-                "INSERT INTO priority_repos (owner, repo, full_name, is_org) VALUES (?, ?, ?, ?)",
-                (owner, repo, full_name, is_org),
+                "INSERT INTO priority_repos (owner, repo, full_name, is_org, is_high_priority) VALUES (?, ?, ?, ?, ?)",
+                (owner, repo, full_name, is_org, 1 if is_high_priority else 0),
             )
             return {
                 "id": cursor.lastrowid,
@@ -1008,6 +1008,7 @@ def add_priority_repo(full_name: str) -> dict[str, Any] | None:
                 "repo": repo,
                 "full_name": full_name,
                 "is_org": bool(is_org),
+                "is_high_priority": is_high_priority,
             }
         except sqlite3.IntegrityError:
             return None
@@ -1024,11 +1025,12 @@ def clear_priority_repos() -> None:
         conn.execute("DELETE FROM priority_repos")
 
 
-def replace_priority_repos(full_names: list[str]) -> list[dict[str, Any]]:
+def replace_priority_repos(full_names: list[str], high_priority: set[str] | None = None) -> list[dict[str, Any]]:
     clear_priority_repos()
+    high_priority = high_priority or set()
     added: list[dict[str, Any]] = []
     for full_name in full_names:
-        result = add_priority_repo(full_name)
+        result = add_priority_repo(full_name, full_name in high_priority)
         if result:
             added.append(result)
     return added

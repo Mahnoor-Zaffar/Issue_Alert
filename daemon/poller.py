@@ -437,11 +437,21 @@ class GitHubPoller:
         repos = get_priority_repos()
         if not hasattr(self, "_batch_idx"):
             self._batch_idx = 0
+        # High-priority (resume) repos are always polled every cycle.
+        high_prio = [r for r in repos if r.get("is_high_priority")]
+        rotating = [r for r in repos if not r.get("is_high_priority")]
         # Sort: orgs first, then repos — so orgs are always polled early
-        repos.sort(key=lambda r: (not bool(r.get("is_org")), r.get("full_name", "")))
-        batch_start = self._batch_idx % max(len(repos), 1)
-        batch_repos = repos[batch_start : batch_start + self._BATCH_SIZE]
-        self._batch_idx = (self._batch_idx + len(batch_repos)) % max(len(repos), 1)
+
+        def _sort_key(r: dict[str, Any]) -> tuple[bool, str]:
+            return (not bool(r.get("is_org")), r.get("full_name", ""))
+
+        high_prio.sort(key=_sort_key)
+        rotating.sort(key=_sort_key)
+        batch_start = self._batch_idx % max(len(rotating), 1)
+        batch_repos = high_prio + rotating[batch_start : batch_start + self._BATCH_SIZE]
+        self._batch_idx = (self._batch_idx + len(rotating[batch_start : batch_start + self._BATCH_SIZE])) % max(
+            len(rotating), 1
+        )
 
         cooldown_seconds = settings.poll_interval_seconds * 3
         now = time.monotonic()
