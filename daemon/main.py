@@ -436,11 +436,16 @@ async def run() -> None:
     # Priority scope: orgs (lowercase) + explicit owner/repo entries.
     # Resume-builders are listed first and marked high priority (polled every cycle).
     priority_repos = [
+        "langchain-ai/langgraph",
         "vllm-project/vllm",
         "BerriAI/litellm",
-        "langchain-ai/langgraph",
-        "langchain-ai/langchain",
+        "OpenHands/OpenHands",
         "run-llama/llama_index",
+        "stanfordnlp/dspy",
+        "pydantic/pydantic-ai",
+        "deepset-ai/haystack",
+        "crewAIInc/crewAI",
+        "langchain-ai/langchain",
         "fastapi/fastapi",
         "pydantic/pydantic",
         "huggingface/transformers",
@@ -457,12 +462,10 @@ async def run() -> None:
         "open-webui/open-webui",
         "qdrant/qdrant",
         "milvus-io/milvus",
-        "deepset-ai/haystack",
         "open-telemetry/opentelemetry-python",
         "prometheus/prometheus",
         "kubernetes/kubernetes",
         "docker/compose",
-        "crewAIInc/crewAI",
         "sktime/sktime",
         "pgmpy/pgmpy",
         "skrub/skrub",
@@ -474,11 +477,16 @@ async def run() -> None:
         "nodejs",
     ]
     resume_repos = {
+        "langchain-ai/langgraph",
         "vllm-project/vllm",
         "BerriAI/litellm",
-        "langchain-ai/langgraph",
-        "langchain-ai/langchain",
+        "OpenHands/OpenHands",
         "run-llama/llama_index",
+        "stanfordnlp/dspy",
+        "pydantic/pydantic-ai",
+        "deepset-ai/haystack",
+        "crewAIInc/crewAI",
+        "langchain-ai/langchain",
         "fastapi/fastapi",
         "pydantic/pydantic",
         "huggingface/transformers",
@@ -557,7 +565,6 @@ async def run() -> None:
         "cli/cli",
         "pre-commit/pre-commit",
         "juspay/hyperswitch",
-        "All-Hands-AI/OpenHands",
         "SWE-agent/SWE-agent",
     ]
     replace_general_repos(general_repos)
