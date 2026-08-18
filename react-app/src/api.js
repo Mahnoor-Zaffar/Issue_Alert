@@ -140,3 +140,19 @@ export function fetchTopPicks(limit = 3) {
 export function fetchResume(days = 7) {
   return get(`/api/stats/resume?days=${days}`);
 }
+
+export function fetchPRs(limit = 50) {
+  return get(`/api/prs?limit=${limit}`);
+}
+
+export function fetchPR(id) {
+  return get(`/api/prs/${id}`);
+}
+
+export function reviewPR(id) {
+  return post(`/api/prs/${id}/reviews`);
+}
+
+export function postPRReview(pullId, reviewId) {
+  return post(`/api/prs/${pullId}/reviews/${reviewId}/post`);
+}

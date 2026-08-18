@@ -21,3 +21,20 @@ def notify_new_issue(title: str, repo: str, url: str, priority: bool = False) ->
         logger.info("Notification sent for %s%s", "priority " if priority else "", repo)
     except Exception:
         logger.warning("Failed to send notification", exc_info=True)
+
+
+def notify_pr_review(repo: str, number: int, url: str) -> None:
+    try:
+        script = (
+            f'display notification "PR #{number} review ready — open the app to review it"'
+            f' with title "📝 {shlex.quote(repo)}"'
+            f' subtitle "{shlex.quote(url)}"'
+        )
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            timeout=5,
+        )
+        logger.info("PR review notification sent for %s#%d", repo, number)
+    except Exception:
+        logger.warning("Failed to send PR review notification", exc_info=True)

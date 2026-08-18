@@ -17,6 +17,8 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from config.settings import settings
+from daemon.pr_discovery import pull_from_webhook_is_new
+from daemon.reviewer import post_review_comment
 from db.rate_limit_store import read_rate_limit
 from db.store import (
     add_general_repo,
@@ -30,14 +32,20 @@ from db.store import (
     get_issue,
     get_issues_updated_since,
     get_personal_stats,
+    get_pr_stats,
     get_preferences,
     get_priority_repos,
+    get_pull,
     get_resume_summary,
     get_stats,
     get_stats_history,
     get_top_picks,
+    has_posted_review,
     list_issues,
+    list_open_prs,
     mark_issue_viewed,
+    mark_review_posted,
+    mark_review_queued,
     remove_general_repo,
     remove_priority_repo,
     request_poll,
@@ -172,7 +180,7 @@ async def api_claim_issue(issue_id: int, body: FlagBody):
 @router.get("/api/health")
 async def api_health():
     stats = get_stats()
-    return {"status": "ok", **stats}
+    return {"status": "ok", "pr_stats": get_pr_stats(), **stats}
 
 
 @router.get("/api/rate-limit")
@@ -343,6 +351,69 @@ async def api_pr_details(pr_url: str):
             for c in checks
         ],
     }
+
+
+@router.get("/api/prs")
+async def api_list_prs(limit: int = 100, repo: str | None = None):
+    prs = list_open_prs(limit=limit)
+    if repo:
+        prs = [p for p in prs if p.get("repo_full_name", "").lower() == repo.lower()]
+    return {"prs": prs}
+
+
+@router.get("/api/prs/{pull_id}")
+async def api_get_pr(pull_id: int):
+    pull = get_pull(pull_id)
+    if not pull:
+        raise HTTPException(status_code=404, detail="PR not found")
+    return pull
+
+
+@router.post("/api/prs/{pull_id}/reviews")
+async def api_review_pr(pull_id: int):
+    """Queue (or regenerate) an LLM review for a PR."""
+    pull = get_pull(pull_id)
+    if not pull:
+        raise HTTPException(status_code=404, detail="PR not found")
+    mark_review_queued(pull_id)
+    request_poll()
+    return {"status": "queued", "message": "Review queued — check back in a moment"}
+
+
+@router.post("/api/prs/{pull_id}/reviews/{review_id}/post")
+async def api_post_pr_review(pull_id: int, review_id: int):
+    """Review-then-post: push a generated review to GitHub as a COMMENT review."""
+    pull = get_pull(pull_id)
+    if not pull:
+        raise HTTPException(status_code=404, detail="PR not found")
+    if pull.get("review_id") != review_id:
+        raise HTTPException(status_code=404, detail="Review not found for this PR")
+    if has_posted_review(pull_id):
+        raise HTTPException(status_code=400, detail="Review already posted to GitHub")
+    review_markdown = pull.get("review_markdown")
+    if not review_markdown:
+        raise HTTPException(status_code=400, detail="No review generated yet — queue a review first")
+
+    try:
+        github_review_id = await post_review_comment(
+            pull["repo_full_name"],
+            pull["number"],
+            review_markdown,
+        )
+    except httpx.HTTPError as exc:
+        logger.exception("Failed to post PR review to GitHub")
+        raise HTTPException(status_code=502, detail=f"GitHub rejected the review: {exc}") from exc
+
+    mark_review_posted(pull_id, github_review_id)
+    return {"status": "posted", "github_review_id": github_review_id}
+
+
+@router.get("/api/prs/{pull_id}/review-log")
+async def api_pr_review_error(pull_id: int):
+    pull = get_pull(pull_id)
+    if not pull:
+        raise HTTPException(status_code=404, detail="PR not found")
+    return {"error": pull.get("review_error")}
 
 
 def _do_open_pr(issue: dict[str, Any], pr_body: str | None = None) -> str:
@@ -626,6 +697,12 @@ async def api_github_webhook(request: Request):
         webhook_id = enqueue_webhook(payload)
         request_poll()
         return {"status": "queued", "webhook_id": webhook_id}
+
+    if payload.get("pull_request") and action in ("opened", "reopened", "ready_for_review", "synchronize"):
+        if pull_from_webhook_is_new(payload):
+            webhook_id = enqueue_webhook(payload)
+            request_poll()
+            return {"status": "queued", "webhook_id": webhook_id, "kind": "pr"}
 
     return {"status": "ignored", "action": action}
 

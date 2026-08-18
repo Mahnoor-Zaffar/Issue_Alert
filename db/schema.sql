@@ -95,6 +95,43 @@ CREATE TABLE IF NOT EXISTS priority_repos (
     is_org           INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS pulls (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_full_name    TEXT NOT NULL,
+    number            INTEGER NOT NULL,
+    title             TEXT NOT NULL,
+    body              TEXT,
+    html_url          TEXT NOT NULL,
+    head_sha          TEXT,
+    base_sha          TEXT,
+    base_ref          TEXT,
+    author            TEXT,
+    state             TEXT NOT NULL DEFAULT 'open',
+    labels            TEXT NOT NULL DEFAULT '[]',
+    head_label        TEXT,
+    is_priority       INTEGER NOT NULL DEFAULT 0,
+    ingested_via      TEXT NOT NULL DEFAULT 'scan',
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (repo_full_name, number)
+);
+
+CREATE TABLE IF NOT EXISTS pr_reviews (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    pull_id          INTEGER NOT NULL REFERENCES pulls(id) ON DELETE CASCADE,
+    status           TEXT NOT NULL DEFAULT 'reviewing',
+    review_markdown  TEXT,
+    posted_to_github INTEGER NOT NULL DEFAULT 0,
+    github_review_id INTEGER,
+    error_message    TEXT,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_pulls_state ON pulls(state);
+CREATE INDEX IF NOT EXISTS idx_pulls_updated_at ON pulls(updated_at);
+CREATE INDEX IF NOT EXISTS idx_pr_reviews_pull_id ON pr_reviews(pull_id);
+
 CREATE TABLE IF NOT EXISTS general_repos (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     owner            TEXT NOT NULL,

@@ -32,6 +32,40 @@ MIGRATIONS = [
     "ALTER TABLE priority_repos ADD COLUMN is_org INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN is_bounty INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN bounty_amount REAL",
+    "CREATE TABLE IF NOT EXISTS pulls ("
+    " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+    " repo_full_name TEXT NOT NULL,"
+    " number INTEGER NOT NULL,"
+    " title TEXT NOT NULL,"
+    " body TEXT,"
+    " html_url TEXT NOT NULL,"
+    " head_sha TEXT,"
+    " base_sha TEXT,"
+    " base_ref TEXT,"
+    " author TEXT,"
+    " state TEXT NOT NULL DEFAULT 'open',"
+    " labels TEXT NOT NULL DEFAULT '[]',"
+    " head_label TEXT,"
+    " is_priority INTEGER NOT NULL DEFAULT 0,"
+    " ingested_via TEXT NOT NULL DEFAULT 'scan',"
+    " created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+    " updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+    " UNIQUE (repo_full_name, number)"
+    ")",
+    "CREATE TABLE IF NOT EXISTS pr_reviews ("
+    " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+    " pull_id INTEGER NOT NULL REFERENCES pulls(id) ON DELETE CASCADE,"
+    " status TEXT NOT NULL DEFAULT 'reviewing',"
+    " review_markdown TEXT,"
+    " posted_to_github INTEGER NOT NULL DEFAULT 0,"
+    " github_review_id INTEGER,"
+    " error_message TEXT,"
+    " created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+    " updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+    ")",
+    "CREATE INDEX IF NOT EXISTS idx_pulls_state ON pulls(state)",
+    "CREATE INDEX IF NOT EXISTS idx_pulls_updated_at ON pulls(updated_at)",
+    "CREATE INDEX IF NOT EXISTS idx_pr_reviews_pull_id ON pr_reviews(pull_id)",
 ]
 
 
@@ -311,6 +345,14 @@ def get_resume_summary(days: int = 7) -> dict[str, Any]:
         ).fetchall()
 
         triaged = conn.execute("SELECT COUNT(*) FROM triage_reports WHERE created_at >= ?", (since,)).fetchone()[0]
+        posted_reviews = conn.execute(
+            "SELECT COUNT(*) FROM pr_reviews WHERE posted_to_github = 1 AND updated_at >= ?",
+            (since,),
+        ).fetchone()[0]
+        reviews_ready = conn.execute(
+            "SELECT COUNT(*) FROM pr_reviews WHERE review_markdown IS NOT NULL AND updated_at >= ?",
+            (since,),
+        ).fetchone()[0]
 
     contributions = [dict(r) for r in claimed]
 
@@ -326,6 +368,7 @@ def get_resume_summary(days: int = 7) -> dict[str, Any]:
     md_lines.append("")
     md_lines.append(f"**Issues Claimed:** {len(contributions)}")
     md_lines.append(f"**Issues Triaged:** {triaged}")
+    md_lines.append(f"**PR Reviews Written:** {reviews_ready} (posted: {posted_reviews})")
     md_lines.append("")
 
     for repo, issues in sorted(repos.items()):
@@ -343,6 +386,8 @@ def get_resume_summary(days: int = 7) -> dict[str, Any]:
         "contributions": contributions,
         "total_claimed": len(contributions),
         "total_triaged": triaged,
+        "pr_reviews_written": reviews_ready,
+        "pr_reviews_posted": posted_reviews,
         "days": days,
     }
 
@@ -745,6 +790,22 @@ def get_stats() -> dict[str, Any]:
             "last_poll_new": daemon["last_poll_new"] if daemon else 0,
             "last_poll_total_count": daemon["last_poll_total_count"] if daemon else 0,
             "last_poll_message": daemon["last_poll_message"] if daemon else None,
+        }
+
+
+def get_pr_stats() -> dict[str, Any]:
+    with get_connection() as conn:
+        open_prs = conn.execute("SELECT COUNT(*) FROM pulls WHERE state = 'open'").fetchone()[0]
+        reviews_ready = conn.execute(
+            "SELECT COUNT(*) FROM pr_reviews WHERE review_markdown IS NOT NULL AND posted_to_github = 0"
+        ).fetchone()[0]
+        reviews_posted = conn.execute("SELECT COUNT(*) FROM pr_reviews WHERE posted_to_github = 1").fetchone()[0]
+        reviewing = conn.execute("SELECT COUNT(*) FROM pr_reviews WHERE status = 'reviewing'").fetchone()[0]
+        return {
+            "open_prs": open_prs,
+            "reviews_ready": reviews_ready,
+            "reviews_posted": reviews_posted,
+            "reviewing": reviewing,
         }
 
 
@@ -1198,3 +1259,256 @@ def reset_retry_count(issue_id: int) -> None:
             "UPDATE issues SET retry_count = 0, updated_at = ? WHERE id = ?",
             (_utcnow(), issue_id),
         )
+
+
+def upsert_pull(
+    *,
+    repo_full_name: str,
+    number: int,
+    title: str,
+    body: str | None,
+    html_url: str,
+    head_sha: str | None,
+    base_sha: str | None,
+    base_ref: str | None,
+    author: str | None,
+    state: str,
+    labels: list[str],
+    head_label: str | None,
+    is_priority: bool,
+    ingested_via: str,
+) -> int:
+    """Insert or update a pull request; returns the pulls.id."""
+    now = _utcnow()
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM pulls WHERE repo_full_name = ? AND number = ?",
+            (repo_full_name, number),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE pulls
+                   SET title = ?, body = ?, html_url = ?, head_sha = ?, base_sha = ?,
+                       base_ref = ?, author = ?, state = ?, labels = ?, head_label = ?,
+                       is_priority = ?, updated_at = ?
+                   WHERE id = ?""",
+                (
+                    title,
+                    body,
+                    html_url,
+                    head_sha,
+                    base_sha,
+                    base_ref,
+                    author,
+                    state,
+                    json.dumps(labels),
+                    head_label,
+                    1 if is_priority else 0,
+                    now,
+                    existing["id"],
+                ),
+            )
+            pull_id = existing["id"]
+        else:
+            cursor = conn.execute(
+                """INSERT INTO pulls
+                   (repo_full_name, number, title, body, html_url, head_sha, base_sha,
+                    base_ref, author, state, labels, head_label, is_priority, ingested_via)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    repo_full_name,
+                    number,
+                    title,
+                    body,
+                    html_url,
+                    head_sha,
+                    base_sha,
+                    base_ref,
+                    author,
+                    state,
+                    json.dumps(labels),
+                    head_label,
+                    1 if is_priority else 0,
+                    ingested_via,
+                ),
+            )
+            pull_id = cursor.lastrowid
+        return pull_id
+
+
+def has_pull(repo_full_name: str, number: int) -> bool:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM pulls WHERE repo_full_name = ? AND number = ?",
+            (repo_full_name, number),
+        ).fetchone()
+        return row is not None
+
+
+def list_open_prs(limit: int = 100) -> list[dict[str, Any]]:
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT p.*, pr.id AS review_id, pr.status AS review_status,
+                      pr.review_markdown, pr.posted_to_github, pr.github_review_id,
+                      pr.updated_at AS review_updated_at
+               FROM pulls p
+               LEFT JOIN pr_reviews pr ON pr.pull_id = p.id
+               WHERE p.state = 'open'
+               ORDER BY
+                 -- Pulls needing attention first: ready reviews, then queued, then fresh
+                 CASE WHEN pr.review_markdown IS NOT NULL THEN 0
+                      WHEN pr.status = 'reviewing' THEN 1
+                      ELSE 2 END,
+                 p.updated_at DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_pull(pull_id: int) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """SELECT p.*, pr.id AS review_id, pr.status AS review_status,
+                      pr.review_markdown, pr.posted_to_github, pr.github_review_id,
+                      pr.error_message AS review_error, pr.updated_at AS review_updated_at
+               FROM pulls p
+               LEFT JOIN pr_reviews pr ON pr.pull_id = p.id
+               WHERE p.id = ?""",
+            (pull_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_pull_by_repo_number(repo_full_name: str, number: int) -> dict[str, Any] | None:
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM pulls WHERE repo_full_name = ? AND number = ?",
+            (repo_full_name, number),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def save_pr_review(
+    pull_id: int,
+    review_markdown: str,
+    *,
+    status: str = "ready",
+) -> int:
+    """Store a completed (or updated) review; returns pr_reviews.id."""
+    now = _utcnow()
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM pr_reviews WHERE pull_id = ?",
+            (pull_id,),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE pr_reviews
+                   SET review_markdown = ?, status = ?, error_message = NULL, updated_at = ?
+                   WHERE id = ?""",
+                (review_markdown, status, now, existing["id"]),
+            )
+            review_id = existing["id"]
+        else:
+            cursor = conn.execute(
+                """INSERT INTO pr_reviews (pull_id, review_markdown, status)
+                   VALUES (?, ?, ?)""",
+                (pull_id, review_markdown, status),
+            )
+            review_id = cursor.lastrowid
+        conn.execute(
+            "UPDATE pulls SET updated_at = ? WHERE id = ?",
+            (now, pull_id),
+        )
+        return review_id
+
+
+def mark_review_queued(pull_id: int) -> None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM pr_reviews WHERE pull_id = ?",
+            (pull_id,),
+        ).fetchone()
+        now = _utcnow()
+        if row:
+            conn.execute(
+                "UPDATE pr_reviews SET status = 'reviewing', error_message = NULL, updated_at = ? WHERE id = ?",
+                (now, row["id"]),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO pr_reviews (pull_id, status) VALUES (?, 'reviewing')",
+                (pull_id,),
+            )
+
+
+def mark_review_error(pull_id: int, message: str) -> None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM pr_reviews WHERE pull_id = ?",
+            (pull_id,),
+        ).fetchone()
+        now = _utcnow()
+        if row:
+            conn.execute(
+                """UPDATE pr_reviews SET status = 'error', error_message = ?, updated_at = ?
+                   WHERE id = ?""",
+                (message, now, row["id"]),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO pr_reviews (pull_id, status, error_message)
+                   VALUES (?, 'error', ?)""",
+                (pull_id, message),
+            )
+
+
+def mark_review_posted(pull_id: int, github_review_id: int) -> None:
+    now = _utcnow()
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE pr_reviews
+               SET posted_to_github = 1, github_review_id = ?, updated_at = ?
+               WHERE pull_id = ?""",
+            (github_review_id, now, pull_id),
+        )
+        conn.execute(
+            "UPDATE pulls SET updated_at = ? WHERE id = ?",
+            (now, pull_id),
+        )
+
+
+def get_pulls_needing_review(limit: int = 5) -> list[dict[str, Any]]:
+    """PRs explicitly queued for review by the user (status='reviewing' or 'error').
+
+    Reviews are strictly on-demand: nothing is reviewed until the user clicks
+    "Get review" in the UI, which flips the PR to 'reviewing'. No auto-drip,
+    no background generation. 'error' rows are retried so a user-requested
+    review that transiently failed gets completed.
+    """
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT p.*, pr.id AS review_id, pr.status AS review_status, pr.error_message
+               FROM pulls p
+               JOIN pr_reviews pr ON pr.pull_id = p.id
+               WHERE p.state = 'open'
+                 AND pr.status IN ('reviewing', 'error')
+               ORDER BY p.updated_at ASC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def has_posted_review(pull_id: int) -> bool:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT posted_to_github FROM pr_reviews WHERE pull_id = ?",
+            (pull_id,),
+        ).fetchone()
+        return bool(row and row["posted_to_github"])

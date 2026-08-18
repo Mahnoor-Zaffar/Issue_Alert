@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Sidebar from "./components/Sidebar";
 import IssueCard from "./components/IssueCard";
+import PrCard from "./components/PrCard";
+import PrReviewPanel from "./components/PrReviewPanel";
 import TriagePanel from "./components/TriagePanel";
 import Toast from "./components/Toast";
 import BountyPopup from "./components/BountyPopup";
 import { useSSE } from "./useSSE";
 import { usePaginatedIssues, PAGE_SIZE } from "./usePaginatedIssues";
-import { fetchIssues, fetchStats, fetchStatsHistory, triggerPoll, setBookmark, dismissIssue, fetchTopPicks, fetchResume } from "./api";
+import { fetchIssues, fetchStats, fetchStatsHistory, triggerPoll, setBookmark, dismissIssue, fetchTopPicks, fetchResume, fetchPRs } from "./api";
 
 const DIFFICULTY_OPTIONS = [
   { value: "", label: "All difficulties" },
@@ -148,6 +150,8 @@ export default function App() {
   const initial = readFilters();
   const [issues, setIssues] = useState([]);
   const [priorityIssues, setPriorityIssues] = useState([]);
+  const [panelPr, setPanelPr] = useState(null);
+  const [prs, setPrs] = useState([]);
   const [stats, setStats] = useState(null);
   const [statsHistory, setStatsHistory] = useState([]);
   const [connected, setConnected] = useState(false);
@@ -333,6 +337,18 @@ export default function App() {
   useEffect(() => {
     fetchTopPicks(3).then((d) => setTopPicks(d.top_picks || [])).catch(() => {});
   }, [issues.length]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPRs(60)
+      .then((d) => { if (!cancelled) setPrs(d.prs || []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const refreshPRs = useCallback(() => {
+    fetchPRs(60).then((d) => setPrs(d.prs || [])).catch(() => {});
+  }, []);
 
   useSSE({
     onIssueUpdate: useCallback((updated) => {
@@ -732,6 +748,29 @@ export default function App() {
           </section>
         )}
 
+        {prs.length > 0 && (
+          <section className="mb-8 rise-in" style={{ animationDelay: "0.07s" }}>
+            <div className="flex items-center gap-3 mb-3.5">
+              <span className="inline-flex items-center justify-center w-[18px] h-[18px] rounded-md bg-primary/15 text-primary">
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1a2 2 0 0 1 2 2v6.535a3.5 3.5 0 1 1-2 0V3a2 2 0 0 1 2-2zm2.5 8.535A3.5 3.5 0 0 1 8 5.5c1.5 0 2 1.5 2 1.5h.5a1 1 0 0 1 1 1V9a3.5 3.5 0 1 1-1 2.465V8h-.06A3.49 3.49 0 0 0 9.5 5.5c-.44 0-.8-.38-.85-.9A1.2 1.2 0 0 0 7.4 4.5h-.4A2 2 0 0 1 5 2.5v7.035zM5 12.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0zM13 11.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0z"/></svg>
+              </span>
+              <h2 className="text-[15px] font-semibold tracking-[-0.01em]">
+                PRs to Review
+              </h2>
+              <span className="text-[11px] text-ink-tertiary ml-auto tabular-nums">
+                {prs.length} open PRs · community reviews
+              </span>
+            </div>
+            <div className="flex flex-col gap-3">
+              {prs.slice(0, 10).map((pr) => (
+                <div key={`pr-${pr.id}`} className="rise-in" style={{ animationDelay: "0.08s" }}>
+                  <PrCard pr={pr} onReviewClick={(p) => setPanelPr(p)} showToast={showToast} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         <div className="flex items-center justify-between mb-3.5 mt-2">
           <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-ink-muted">
             General Feed
@@ -782,6 +821,10 @@ export default function App() {
 
       {panelIssue && (
         <TriagePanel issue={panelIssue} onClose={() => setPanelIssue(null)} showToast={showToast} />
+      )}
+
+      {panelPr && (
+        <PrReviewPanel pr={panelPr} onClose={() => { setPanelPr(null); refreshPRs(); }} showToast={showToast} />
       )}
 
       {showResume && (

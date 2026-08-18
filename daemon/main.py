@@ -10,13 +10,15 @@ import httpx
 
 from config.settings import settings
 from daemon.context_extractor import extract_repo_context
-from daemon.notifier import notify_new_issue
+from daemon.notifier import notify_new_issue, notify_pr_review
 from daemon.poller import (
     GitHubPoller,
     matches_label_preference,
     matches_language_preference,
     passes_claim_verification,
 )
+from daemon.pr_discovery import PRDiscovery
+from daemon.reviewer import PRReviewer
 from daemon.triage import TriageEngine
 from db.store import (
     dequeue_triage,
@@ -26,6 +28,7 @@ from db.store import (
     get_pending_triage_requests,
     get_preferences,
     get_prs_pending_checks,
+    get_pulls_needing_review,
     increment_retry_count,
     init_db,
     insert_issue,
@@ -33,6 +36,7 @@ from db.store import (
     is_issue_seen,
     is_poll_requested,
     mark_issue_seen,
+    mark_review_error,
     mark_webhook_processed,
     parse_difficulty,
     purge_stale_issues,
@@ -42,6 +46,7 @@ from db.store import (
     replace_priority_repos,
     reset_retry_count,
     resync_issue_priority_flags,
+    save_pr_review,
     update_issue_status,
     update_poll_state,
     update_pr_status,
@@ -170,16 +175,70 @@ async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine,
     return True
 
 
-async def process_webhooks(poller: GitHubPoller, triage_engine: TriageEngine) -> int:
+async def process_webhooks(
+    poller: GitHubPoller,
+    triage_engine: TriageEngine,
+    pr_discovery: PRDiscovery | None = None,
+) -> int:
     processed = 0
     for entry in fetch_pending_webhooks():
-        issue_data = poller.issue_from_webhook(entry["payload"])
+        payload = entry["payload"]
+        if isinstance(payload, str):
+            import json
+
+            try:
+                payload = json.loads(payload)
+            except json.JSONDecodeError:
+                mark_webhook_processed(entry["id"])
+                continue
         mark_webhook_processed(entry["id"])
+        if payload.get("pull_request"):
+            if pr_discovery and await pr_discovery.ingest_webhook(payload):
+                pr = payload.get("pull_request") or {}
+                repo = payload.get("repository") or {}
+                logger.info(
+                    "Ingested PR webhook: %s#%s",
+                    repo.get("full_name"),
+                    pr.get("number"),
+                )
+            continue
+        issue_data = poller.issue_from_webhook(payload)
         if issue_data and await process_issue(issue_data, triage_engine):
             processed += 1
     if processed:
-        logger.info("Processed %d webhook issue(s)", processed)
+        logger.info("Processed %d webhook event(s)", processed)
     return processed
+
+
+async def _review_single(pull: dict[str, Any], reviewer: PRReviewer, sem: asyncio.Semaphore) -> bool:
+    """Generate a PR review and store it. Returns True if a review was produced."""
+    pull_id = pull["id"]
+    async with sem:
+        try:
+            review_markdown = await reviewer.review_pull(pull)
+            save_pr_review(pull_id, review_markdown, status="ready")
+            logger.info("PR review ready: %s#%s", pull["repo_full_name"], pull["number"])
+            notify_pr_review(pull["repo_full_name"], pull["number"], pull["html_url"])
+            return True
+        except Exception as exc:
+            logger.exception("PR review failed for %s#%s", pull["repo_full_name"], pull["number"])
+            mark_review_error(pull_id, str(exc)[:500])
+            return False
+
+
+async def process_pr_reviews(reviewer: PRReviewer) -> int:
+    """Generate reviews only for PRs the user explicitly queued. Returns count of new reviews."""
+    pending = get_pulls_needing_review()
+    if not pending:
+        return 0
+    sem = asyncio.Semaphore(2)
+    done = 0
+    for pull in pending:
+        if await _review_single(pull, reviewer, sem):
+            done += 1
+    if done:
+        logger.info("Generated %d PR review(s)", done)
+    return done
 
 
 async def _triage_single(issue_id: int, triage_engine: TriageEngine, sem: asyncio.Semaphore) -> bool:
@@ -248,12 +307,30 @@ async def triage_queue_worker(triage_engine: TriageEngine) -> None:
         await asyncio.sleep(1 if processed else 3)
 
 
-async def poll_cycle(poller: GitHubPoller, triage_engine: TriageEngine) -> None:
+async def pr_review_worker(pr_reviewer: PRReviewer) -> None:
+    """Continuously drain user-queued PR reviews so clicks are processed immediately."""
+    while True:
+        processed = 0
+        try:
+            processed = await process_pr_reviews(pr_reviewer)
+        except Exception:
+            logger.exception("PR review worker error")
+        await asyncio.sleep(1 if processed else 5)
+
+
+async def poll_cycle(
+    poller: GitHubPoller,
+    triage_engine: TriageEngine,
+    pr_discovery: PRDiscovery | None = None,
+) -> None:
     purged = purge_stale_issues()
     if purged:
         logger.info("Purged %d stale or viewed issue(s) from feed", purged)
 
-    await process_webhooks(poller, triage_engine)
+    await process_webhooks(poller, triage_engine, pr_discovery=pr_discovery)
+
+    if pr_discovery:
+        await pr_discovery.scan_priority_repos()
 
     all_priority = await poller.fetch_priority_issues()
     priority_new = 0
@@ -575,6 +652,8 @@ async def run() -> None:
 
     poller = GitHubPoller()
     triage_engine = TriageEngine()
+    pr_discovery = PRDiscovery()
+    pr_reviewer = PRReviewer()
 
     logger.info(
         "Daemon started — polling every %ds (discovery window: last %d minutes) — db=%s token=%s",
@@ -585,11 +664,16 @@ async def run() -> None:
     )
 
     triage_task = asyncio.create_task(triage_queue_worker(triage_engine))
+    pr_review_task = asyncio.create_task(pr_review_worker(pr_reviewer))
 
     try:
         while True:
             try:
-                await poll_cycle(poller, triage_engine)
+                await poll_cycle(
+                    poller,
+                    triage_engine,
+                    pr_discovery=pr_discovery,
+                )
             except Exception:
                 logger.exception("Poll cycle failed")
                 update_poll_state(
@@ -602,7 +686,10 @@ async def run() -> None:
             await interruptible_sleep(settings.poll_interval_seconds)
     finally:
         triage_task.cancel()
+        pr_review_task.cancel()
         await poller.close()
+        await pr_discovery.close()
+        await pr_reviewer.close()
         release_daemon_lock()
 
 
