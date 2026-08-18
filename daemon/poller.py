@@ -378,10 +378,14 @@ class GitHubPoller:
             logger.warning("No general-feed repos configured — skipping general fetch")
             return [], 0, "No general-feed repos configured"
 
+        # Stagger general repos in round-robin batches so we never fire a
+        # sustained burst of search requests in a single cycle.
+        batch = self._general_batch(repos)
+
         all_issues: list[dict[str, Any]] = []
         total_count = 0
 
-        for r in repos:
+        for r in batch:
             full_name = r["full_name"]
             if is_priority_repo(full_name):
                 logger.debug("Skipping %s in general fetch — already in priority scope", full_name)
@@ -405,6 +409,25 @@ class GitHubPoller:
                     all_issues.append(issue)
 
         return all_issues, total_count, None
+
+    def _general_batch(self, repos: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Round-robin slice of general repos to poll this cycle.
+
+        Uses a rolling index so every repo is eventually polled, but the
+        per-cycle search request count stays small enough to avoid GitHub's
+        secondary rate limits.
+        """
+        if not hasattr(self, "_general_batch_idx"):
+            self._general_batch_idx = 0
+        n = len(repos)
+        per_cycle = max(2, min(self._general_batch_size, n))
+        start = self._general_batch_idx
+        batch = repos[start : start + per_cycle]
+        # Wrap around when we reach the end.
+        self._general_batch_idx = (start + per_cycle) % n
+        if n and len(batch) < per_cycle:
+            batch = repos + batch[: per_cycle - len(batch)]
+        return batch
 
     async def _fetch_repo_issues(
         self,
@@ -435,6 +458,9 @@ class GitHubPoller:
         return results
 
     _BATCH_SIZE = 10
+
+    # Max general-feed search requests per cycle; round-robin across all repos.
+    _general_batch_size = 22
 
     async def fetch_priority_issues(self) -> list[dict[str, Any]]:
         cutoff = freshness_cutoff_utc()

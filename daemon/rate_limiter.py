@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import time
 from dataclasses import dataclass
 
@@ -10,7 +11,10 @@ from db.rate_limit_store import save_rate_limit
 logger = logging.getLogger(__name__)
 
 # GitHub Search API: 30 authenticated requests per minute.
-_MIN_SEARCH_INTERVAL_SECONDS = 2.1
+# Spaced conservatively + jittered to avoid secondary (abuse) rate limits,
+# which trigger on smooth constant-rate bursts even under the hard limit.
+_MIN_SEARCH_INTERVAL_SECONDS = 3.2
+_MAX_SEARCH_JITTER_SECONDS = 1.6
 
 
 @dataclass
@@ -35,10 +39,11 @@ class GitHubRateLimiter:
 
     async def wait_if_needed(self) -> None:
         now = time.time()
+        interval = _MIN_SEARCH_INTERVAL_SECONDS + random.uniform(0, _MAX_SEARCH_JITTER_SECONDS)
         if self._last_search_at is not None:
             elapsed = now - self._last_search_at
-            if elapsed < _MIN_SEARCH_INTERVAL_SECONDS:
-                await asyncio.sleep(_MIN_SEARCH_INTERVAL_SECONDS - elapsed)
+            if elapsed < interval:
+                await asyncio.sleep(interval - elapsed)
 
         if self._state.remaining is not None and self._state.remaining <= 1:
             if self._state.reset_epoch:
