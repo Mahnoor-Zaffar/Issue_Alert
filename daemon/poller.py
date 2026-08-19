@@ -109,15 +109,16 @@ def build_search_query(
     return " ".join(parts)
 
 
-def build_priority_query(full_name: str, cutoff: datetime | None = None) -> str:
+def build_priority_query(full_name: str, cutoff: datetime | None = None, *, include_created: bool = True) -> str:
     cutoff = cutoff or freshness_cutoff_utc()
     parts = [
         "is:issue",
         "is:open",
         "-linked:pr",
-        format_created_filter(cutoff),
         f"repo:{full_name}",
     ]
+    if include_created:
+        parts.append(format_created_filter(cutoff))
     if settings.max_issue_comments == 0:
         parts.append("comments:0")
     return " ".join(parts)
@@ -176,6 +177,7 @@ def passes_claim_verification(
     cutoff: datetime | None = None,
     *,
     is_priority: bool = False,
+    skip_created_check: bool = False,
 ) -> bool:
     cutoff = cutoff or freshness_cutoff_utc()
 
@@ -200,7 +202,7 @@ def passes_claim_verification(
         return False
 
     created_at = item.get("created_at")
-    if created_at:
+    if created_at and not skip_created_check:
         created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
         if created < cutoff:
             return False
@@ -437,15 +439,21 @@ class GitHubPoller:
         is_priority: bool,
         *,
         query: str | None = None,
+        is_small_target: bool = False,
     ) -> list[dict[str, Any]]:
         if query is None:
-            query = build_priority_query(full_name, cutoff)
+            query = build_priority_query(full_name, cutoff, include_created=not is_small_target)
         items, _, ok = await self._search_pages(query, max_pages=max_pages)
         if not ok:
             return []
         results: list[dict[str, Any]] = []
         for item in items:
-            passed = passes_claim_verification(item, cutoff, is_priority=is_priority)
+            passed = passes_claim_verification(
+                item,
+                cutoff,
+                is_priority=is_priority,
+                skip_created_check=is_small_target,
+            )
             if not passed:
                 continue
             if not has_good_issue_label(item):
@@ -454,6 +462,7 @@ class GitHubPoller:
             if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):
                 issue["is_priority"] = True
                 issue["is_high_priority"] = is_priority
+                issue["is_small_target"] = is_small_target
                 results.append(issue)
         return results
 
@@ -491,6 +500,7 @@ class GitHubPoller:
         for r in batch_repos:
             is_high = bool(r.get("is_high_priority"))
             is_org = bool(r.get("is_org"))
+            is_small = bool(r.get("is_small_target"))
             if not is_high:
                 last = self._last_priority_poll.get(r["full_name"], 0)
                 if now - last < cooldown_seconds:
@@ -506,7 +516,13 @@ class GitHubPoller:
                     query=query,
                 )
             else:
-                repo_issues = await self._fetch_repo_issues(r["full_name"], cutoff, max_pages=1, is_priority=is_high)
+                repo_issues = await self._fetch_repo_issues(
+                    r["full_name"],
+                    cutoff,
+                    max_pages=2 if is_small else 1,
+                    is_priority=is_high,
+                    is_small_target=is_small,
+                )
             all_issues.extend(repo_issues)
         if all_issues:
             logger.info("Found %d priority issue(s)", len(all_issues))

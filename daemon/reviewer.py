@@ -211,7 +211,13 @@ async def post_review_comment(
     number: int,
     review_markdown: str,
 ) -> int:
-    """Post a pull request review as a COMMENT. Returns the GitHub review id."""
+    """Post a review as a GitHub COMMENT.
+
+    Tries a formal pull request review first (requires collaborator access). If
+    GitHub rejects it with 403/404 — e.g. the token is not a collaborator on the
+    repo — falls back to a regular issue-style comment on the PR, which works on
+    any public repo. Returns the GitHub review id (formal) or comment id (fallback).
+    """
     body_text = review_markdown[:65536]
     async with httpx.AsyncClient(
         base_url="https://api.github.com",
@@ -226,6 +232,22 @@ async def post_review_comment(
             f"/repos/{repo}/pulls/{number}/reviews",
             json={"body": body_text, "event": "COMMENT"},
         )
+        if response.status_code in (403, 404):
+            # Not a collaborator — post as a regular comment on the PR instead.
+            fallback = await client.post(
+                f"/repos/{repo}/issues/{number}/comments",
+                json={"body": body_text},
+            )
+            fallback.raise_for_status()
+            data = fallback.json()
+            logger.info(
+                "Formal review rejected (HTTP %s) for %s#%s — posted as comment (id=%s)",
+                response.status_code,
+                repo,
+                number,
+                data["id"],
+            )
+            return int(data["id"])
         response.raise_for_status()
         data = response.json()
         return int(data["id"])

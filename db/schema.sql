@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS priority_repos (
     full_name        TEXT NOT NULL UNIQUE,
     added_at         TEXT NOT NULL DEFAULT (datetime('now')),
     is_high_priority INTEGER NOT NULL DEFAULT 0,
-    is_org           INTEGER NOT NULL DEFAULT 0
+    is_org           INTEGER NOT NULL DEFAULT 0,
+    is_small_target  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS pulls (

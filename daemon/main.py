@@ -47,6 +47,7 @@ from db.store import (
     reset_retry_count,
     resync_issue_priority_flags,
     save_pr_review,
+    set_priority_repo_flags,
     update_issue_status,
     update_poll_state,
     update_pr_status,
@@ -54,6 +55,17 @@ from db.store import (
 
 LOG_FILE = Path(__file__).resolve().parent.parent / "data" / "daemon.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+# Small active repos that actively merge contributor PRs — good first wins for
+# the resume. Set as is_small_target so their issues bypass the created-date
+# freshness filter and surface regardless of age.
+_SMALL_TARGET_REPOS = (
+    "gaia-research/gaia-skill-tree",
+    "proteanhq/protean",
+    "mtrnix/metronix-memory",
+    "finch-tensor/finch-tensor",
+    "qilimanjaro-tech/qililab",
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -151,7 +163,10 @@ async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine,
     if is_issue_seen(github_id):
         return False
 
-    if not passes_claim_verification(issue_data):
+    if not passes_claim_verification(
+        issue_data,
+        skip_created_check=bool(issue_data.get("is_small_target")),
+    ):
         mark_issue_seen(github_id)
         logger.info(
             "Skipping issue %s — failed claim verification (assigned, commented, or linked PR)",
@@ -547,6 +562,14 @@ async def run() -> None:
         "pgmpy/pgmpy",
         "skrub/skrub",
         "apache/hive",
+        # Small active repos that actively merge contributor PRs (good
+        # first wins for the resume). Polled every cycle; their long-lived
+        # good-first-issues are surfaced regardless of age.
+        "gaia-research/gaia-skill-tree",
+        "proteanhq/protean",
+        "mtrnix/metronix-memory",
+        "finch-tensor/finch-tensor",
+        "qilimanjaro-tech/qililab",
         "grayhatdevelopers",
         "docker",
         "vercel",
@@ -573,8 +596,16 @@ async def run() -> None:
         "pytorch/pytorch",
         "scipy/scipy",
         "sqlalchemy/sqlalchemy",
+        # Small merge-friendly targets — also polled every cycle like resume repos.
+        "gaia-research/gaia-skill-tree",
+        "proteanhq/protean",
+        "mtrnix/metronix-memory",
+        "finch-tensor/finch-tensor",
+        "qilimanjaro-tech/qililab",
     }
     replace_priority_repos(priority_repos, high_priority=resume_repos)
+    for small in _SMALL_TARGET_REPOS:
+        set_priority_repo_flags(small, is_small_target=True)
 
     # General feed scope: specific owner/repo pairs polled directly
     # (no more broad GitHub search).
@@ -643,6 +674,13 @@ async def run() -> None:
         "pre-commit/pre-commit",
         "juspay/hyperswitch",
         "SWE-agent/SWE-agent",
+        # Small active repos that actively merge contributor PRs (general
+        # rotation) — good first wins for the resume.
+        "mozilla-ai/clawbolt",
+        "lamalab-org/openclatura",
+        "nipoppy/nipoppy",
+        "finos/opengris-scaler",
+        "Seeed-Studio/kicad-mcp-server",
     ]
     replace_general_repos(general_repos)
     resync_issue_priority_flags()

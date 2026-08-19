@@ -401,8 +401,16 @@ async def api_post_pr_review(pull_id: int, review_id: int):
             review_markdown,
         )
     except httpx.HTTPError as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
         logger.exception("Failed to post PR review to GitHub")
-        raise HTTPException(status_code=502, detail=f"GitHub rejected the review: {exc}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"GitHub rejected the review and the comment fallback: {exc} "
+                f"(HTTP {status}). Check that {pull['repo_full_name']} is public "
+                "and has issues enabled."
+            ),
+        ) from exc
 
     mark_review_posted(pull_id, github_review_id)
     return {"status": "posted", "github_review_id": github_review_id}

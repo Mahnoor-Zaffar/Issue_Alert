@@ -32,6 +32,8 @@ MIGRATIONS = [
     "ALTER TABLE priority_repos ADD COLUMN is_org INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN is_bounty INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN bounty_amount REAL",
+    "ALTER TABLE priority_repos ADD COLUMN is_small_target INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE issues ADD COLUMN is_small_target INTEGER NOT NULL DEFAULT 0",
     "CREATE TABLE IF NOT EXISTS pulls ("
     " id INTEGER PRIMARY KEY AUTOINCREMENT,"
     " repo_full_name TEXT NOT NULL,"
@@ -92,7 +94,9 @@ def _visible_issue_clauses(
     if bookmarked_only:
         clauses.append("i.bookmarked = 1")
     if not include_stale:
-        clauses.append("(i.github_created_at IS NOT NULL AND i.github_created_at >= ?)")
+        clauses.append(
+            "(COALESCE(i.is_small_target, 0) = 1 OR (i.github_created_at IS NOT NULL AND i.github_created_at >= ?))"
+        )
         params.append(_freshness_cutoff_iso())
 
     return clauses, params
@@ -406,8 +410,8 @@ def insert_issue(issue: dict[str, Any]) -> int:
                 github_id, title, body, html_url, repo_full_name,
                 repo_clone_url, labels, language, repo_stars, score,
                 comments, state, status, github_created_at, created_at,
-                updated_at, is_priority, is_bounty, bounty_amount
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                updated_at, is_priority, is_bounty, bounty_amount, is_small_target
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 issue["github_id"],
@@ -429,6 +433,7 @@ def insert_issue(issue: dict[str, Any]) -> int:
                 issue.get("is_priority", False),
                 issue.get("is_bounty", False),
                 issue.get("bounty_amount"),
+                issue.get("is_small_target", False),
             ),
         )
         if cursor.lastrowid:
@@ -475,6 +480,7 @@ def purge_stale_issues() -> int:
             """
             DELETE FROM issues
             WHERE bookmarked = 0
+              AND COALESCE(is_small_target, 0) = 0
               AND github_created_at IS NOT NULL
               AND github_created_at < ?
             """,
@@ -678,7 +684,10 @@ def list_issues(
     if bounty_only:
         clauses.append("i.is_bounty = 1")
     if hide_old_unclaimed:
-        clauses.append("(i.claimed = 1 OR i.github_created_at IS NULL OR i.github_created_at >= ?)")
+        clauses.append(
+            "(i.claimed = 1 OR COALESCE(i.is_small_target, 0) = 1 "
+            "OR i.github_created_at IS NULL OR i.github_created_at >= ?)"
+        )
         params.append(_freshness_cutoff_iso())
 
     where = " AND ".join(clauses)
@@ -696,7 +705,7 @@ def list_issues(
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
             WHERE {where}
-            ORDER BY i.github_created_at DESC, i.score DESC
+            ORDER BY COALESCE(i.is_small_target, 0) DESC, i.github_created_at DESC, i.score DESC
             LIMIT ? OFFSET ?
             """,
             params,
@@ -1040,8 +1049,26 @@ def get_priority_repos() -> list[dict[str, Any]]:
         rows = conn.execute(
             "SELECT id, owner, repo, full_name, added_at, "
             "COALESCE(is_high_priority, 0) AS is_high_priority, "
-            "COALESCE(is_org, 0) AS is_org "
+            "COALESCE(is_org, 0) AS is_org, "
+            "COALESCE(is_small_target, 0) AS is_small_target "
             "FROM priority_repos ORDER BY is_high_priority DESC, added_at"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_small_target_repos() -> list[dict[str, Any]]:
+    """Small active repos that actively merge contributor PRs.
+
+    Their issues are surfaced regardless of age (no created-date filter) so
+    long-lived good-first-issues from these repos always appear in the feed.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, owner, repo, full_name, added_at, "
+            "COALESCE(is_high_priority, 0) AS is_high_priority, "
+            "COALESCE(is_small_target, 0) AS is_small_target "
+            "FROM priority_repos WHERE COALESCE(is_small_target, 0) = 1 "
+            "ORDER BY added_at"
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -1073,6 +1100,31 @@ def add_priority_repo(full_name: str, is_high_priority: bool = False) -> dict[st
             }
         except sqlite3.IntegrityError:
             return None
+
+
+def set_priority_repo_flags(
+    full_name: str,
+    *,
+    is_high_priority: bool | None = None,
+    is_small_target: bool | None = None,
+) -> bool:
+    """Update flags on a priority repo; returns True if a row was updated."""
+    with get_connection() as conn:
+        fields, values = [], []
+        if is_high_priority is not None:
+            fields.append("is_high_priority = ?")
+            values.append(1 if is_high_priority else 0)
+        if is_small_target is not None:
+            fields.append("is_small_target = ?")
+            values.append(1 if is_small_target else 0)
+        if not fields:
+            return False
+        values.append(full_name)
+        cursor = conn.execute(
+            f"UPDATE priority_repos SET {', '.join(fields)} WHERE full_name = ?",
+            tuple(values),
+        )
+        return cursor.rowcount > 0
 
 
 def remove_priority_repo(repo_id: int) -> bool:
