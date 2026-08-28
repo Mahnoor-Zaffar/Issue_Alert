@@ -34,6 +34,15 @@ MIGRATIONS = [
     "ALTER TABLE issues ADD COLUMN bounty_amount REAL",
     "ALTER TABLE priority_repos ADD COLUMN is_small_target INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN is_small_target INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE general_repos ADD COLUMN is_long_window INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE issues ADD COLUMN is_long_window INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE daemon_state ADD COLUMN skip_label INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE daemon_state ADD COLUMN skip_language INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE daemon_state ADD COLUMN skip_quality INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE daemon_state ADD COLUMN skip_claimed INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE daemon_state ADD COLUMN skip_seen INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE general_repos ADD COLUMN is_long_window INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE issues ADD COLUMN is_long_window INTEGER NOT NULL DEFAULT 0",
     "CREATE TABLE IF NOT EXISTS pulls ("
     " id INTEGER PRIMARY KEY AUTOINCREMENT,"
     " repo_full_name TEXT NOT NULL,"
@@ -80,6 +89,11 @@ def _freshness_cutoff_iso() -> str:
     return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _long_window_cutoff_iso() -> str:
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=settings.issue_long_window_minutes)
+    return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _visible_issue_clauses(
     *,
     show_dismissed: bool = False,
@@ -95,8 +109,11 @@ def _visible_issue_clauses(
         clauses.append("i.bookmarked = 1")
     if not include_stale:
         clauses.append(
-            "(COALESCE(i.is_small_target, 0) = 1 OR (i.github_created_at IS NOT NULL AND i.github_created_at >= ?))"
+            "(COALESCE(i.is_small_target, 0) = 1 OR "
+            "(i.github_created_at IS NOT NULL AND i.github_created_at >= "
+            "CASE WHEN COALESCE(i.is_long_window, 0) = 1 THEN ? ELSE ? END))"
         )
+        params.append(_long_window_cutoff_iso())
         params.append(_freshness_cutoff_iso())
 
     return clauses, params
@@ -410,8 +427,8 @@ def insert_issue(issue: dict[str, Any]) -> int:
                 github_id, title, body, html_url, repo_full_name,
                 repo_clone_url, labels, language, repo_stars, score,
                 comments, state, status, github_created_at, created_at,
-                updated_at, is_priority, is_bounty, bounty_amount, is_small_target
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                updated_at, is_priority, is_bounty, bounty_amount, is_small_target, is_long_window
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 issue["github_id"],
@@ -434,6 +451,7 @@ def insert_issue(issue: dict[str, Any]) -> int:
                 issue.get("is_bounty", False),
                 issue.get("bounty_amount"),
                 issue.get("is_small_target", False),
+                issue.get("is_long_window", False),
             ),
         )
         if cursor.lastrowid:
@@ -481,6 +499,7 @@ def purge_stale_issues() -> int:
             DELETE FROM issues
             WHERE bookmarked = 0
               AND COALESCE(is_small_target, 0) = 0
+              AND COALESCE(is_long_window, 0) = 0
               AND github_created_at IS NOT NULL
               AND github_created_at < ?
             """,
@@ -686,8 +705,10 @@ def list_issues(
     if hide_old_unclaimed:
         clauses.append(
             "(i.claimed = 1 OR COALESCE(i.is_small_target, 0) = 1 "
-            "OR i.github_created_at IS NULL OR i.github_created_at >= ?)"
+            "OR i.github_created_at IS NULL OR i.github_created_at >= "
+            "CASE WHEN COALESCE(i.is_long_window, 0) = 1 THEN ? ELSE ? END)"
         )
+        params.append(_long_window_cutoff_iso())
         params.append(_freshness_cutoff_iso())
 
     where = " AND ".join(clauses)
@@ -705,7 +726,7 @@ def list_issues(
             FROM issues i
             LEFT JOIN triage_reports t ON t.issue_id = i.id
             WHERE {where}
-            ORDER BY COALESCE(i.is_small_target, 0) DESC, i.github_created_at DESC, i.score DESC
+            ORDER BY i.github_created_at DESC, i.score DESC
             LIMIT ? OFFSET ?
             """,
             params,
@@ -782,7 +803,12 @@ def get_stats() -> dict[str, Any]:
         daemon = conn.execute(
             """
             SELECT last_poll_at, last_poll_fetched, last_poll_new,
-                   last_poll_total_count, last_poll_message
+                   last_poll_total_count, last_poll_message,
+                   COALESCE(skip_label, 0) AS skip_label,
+                   COALESCE(skip_language, 0) AS skip_language,
+                   COALESCE(skip_quality, 0) AS skip_quality,
+                   COALESCE(skip_claimed, 0) AS skip_claimed,
+                   COALESCE(skip_seen, 0) AS skip_seen
             FROM daemon_state WHERE id = 1
             """
         ).fetchone()
@@ -799,6 +825,11 @@ def get_stats() -> dict[str, Any]:
             "last_poll_new": daemon["last_poll_new"] if daemon else 0,
             "last_poll_total_count": daemon["last_poll_total_count"] if daemon else 0,
             "last_poll_message": daemon["last_poll_message"] if daemon else None,
+            "skip_label": daemon["skip_label"] if daemon else 0,
+            "skip_language": daemon["skip_language"] if daemon else 0,
+            "skip_quality": daemon["skip_quality"] if daemon else 0,
+            "skip_claimed": daemon["skip_claimed"] if daemon else 0,
+            "skip_seen": daemon["skip_seen"] if daemon else 0,
         }
 
 
@@ -858,6 +889,12 @@ def update_poll_state(
     new_count: int,
     total_count: int,
     message: str | None = None,
+    *,
+    skip_label: int = 0,
+    skip_language: int = 0,
+    skip_quality: int = 0,
+    skip_claimed: int = 0,
+    skip_seen: int = 0,
 ) -> None:
     with get_connection() as conn:
         conn.execute(
@@ -868,10 +905,26 @@ def update_poll_state(
                 last_poll_new = ?,
                 last_poll_total_count = ?,
                 last_poll_message = ?,
-                poll_requested = 0
+                poll_requested = 0,
+                skip_label = COALESCE(skip_label, 0) + ?,
+                skip_language = COALESCE(skip_language, 0) + ?,
+                skip_quality = COALESCE(skip_quality, 0) + ?,
+                skip_claimed = COALESCE(skip_claimed, 0) + ?,
+                skip_seen = COALESCE(skip_seen, 0) + ?
             WHERE id = 1
             """,
-            (_utcnow(), fetched, new_count, total_count, message),
+            (
+                _utcnow(),
+                fetched,
+                new_count,
+                total_count,
+                message,
+                skip_label,
+                skip_language,
+                skip_quality,
+                skip_claimed,
+                skip_seen,
+            ),
         )
 
 
@@ -1184,9 +1237,28 @@ def resync_issue_priority_flags() -> int:
 def get_general_repos() -> list[dict[str, Any]]:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, owner, repo, full_name, added_at FROM general_repos ORDER BY added_at"
+            "SELECT id, owner, repo, full_name, added_at, "
+            "COALESCE(is_long_window, 0) AS is_long_window "
+            "FROM general_repos ORDER BY added_at"
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def set_general_repo_flags(full_name: str, *, is_long_window: bool | None = None) -> bool:
+    """Update flags on a general repo; returns True if a row was updated."""
+    with get_connection() as conn:
+        fields, values = [], []
+        if is_long_window is not None:
+            fields.append("is_long_window = ?")
+            values.append(1 if is_long_window else 0)
+        if not fields:
+            return False
+        values.append(full_name)
+        cursor = conn.execute(
+            f"UPDATE general_repos SET {', '.join(fields)} WHERE full_name = ?",
+            tuple(values),
+        )
+        return cursor.rowcount > 0
 
 
 def add_general_repo(full_name: str) -> dict[str, Any] | None:

@@ -24,9 +24,11 @@ from db.store import (
     dequeue_triage,
     fetch_pending_webhooks,
     get_errored_issues_for_retry,
+    get_general_repos,
     get_issue,
     get_pending_triage_requests,
     get_preferences,
+    get_priority_repos,
     get_prs_pending_checks,
     get_pulls_needing_review,
     increment_retry_count,
@@ -47,6 +49,7 @@ from db.store import (
     reset_retry_count,
     resync_issue_priority_flags,
     save_pr_review,
+    set_general_repo_flags,
     set_priority_repo_flags,
     update_issue_status,
     update_poll_state,
@@ -66,6 +69,54 @@ _SMALL_TARGET_REPOS = (
     "finch-tensor/finch-tensor",
     "qilimanjaro-tech/qililab",
 )
+
+# General-feed repos whose issues should use the long discovery window (30d by
+# default) rather than the freshness window. Their older good-label issues
+# still surface in the general feed.
+_LONG_WINDOW_REPOS = (
+    "PostHog/posthog",
+    "HeyPuter/puter",
+    "strapi/strapi",
+    "twentyhq/twenty",
+    "SigNoz/signoz",
+)
+
+
+async def _ensure_repo_webhooks() -> None:
+    """Register GitHub webhooks for all tracked repos if not already present."""
+    webhook_url = f"https://{settings.api_host}:{settings.api_port}/api/webhooks/github"
+    events = ["issues", "issue_comment", "pull_request"]
+    headers = {
+        "Authorization": f"Bearer {settings.github_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    async with httpx.AsyncClient(headers=headers, timeout=15) as client:
+        tracked = {r["full_name"] for r in get_priority_repos()} | {r["full_name"] for r in get_general_repos()}
+        for full_name in tracked:
+            try:
+                hooks = await client.get(f"/repos/{full_name}/hooks")
+                if hooks.status_code != 200:
+                    continue
+                existing_urls = {h["config"]["url"] for h in hooks.json() if h["config"].get("url")}
+                if webhook_url in existing_urls:
+                    continue
+                resp = await client.post(
+                    f"/repos/{full_name}/hooks",
+                    json={
+                        "name": "web",
+                        "active": True,
+                        "events": events,
+                        "config": {"url": webhook_url, "content_type": "json", "insecure_ssl": "0"},
+                    },
+                )
+                if resp.status_code in (200, 201):
+                    logger.info("Registered webhook for %s", full_name)
+                else:
+                    logger.warning("Failed to register webhook for %s: HTTP %d", full_name, resp.status_code)
+            except Exception:
+                logger.exception("Webhook registration error for %s", full_name)
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -165,7 +216,7 @@ async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine,
 
     if not passes_claim_verification(
         issue_data,
-        skip_created_check=bool(issue_data.get("is_small_target")),
+        skip_created_check=bool(issue_data.get("is_small_target") or issue_data.get("is_long_window")),
     ):
         mark_issue_seen(github_id)
         logger.info(
@@ -367,6 +418,10 @@ async def poll_cycle(
     issues, total_count, search_note = await poller.fetch_issues()
     new_count = 0
     skipped_seen = 0
+    skipped_label = 0
+    skipped_language = 0
+    skipped_quality = 0
+    skipped_claimed = 0
 
     for issue_data in issues:
         if is_issue_seen(issue_data["github_id"]):
@@ -374,15 +429,20 @@ async def poll_cycle(
             continue
         if not matches_label_preference(issue_data, get_preferences()):
             mark_issue_seen(issue_data["github_id"])
+            skipped_label += 1
             continue
         if not matches_language_preference(issue_data, get_preferences()):
             mark_issue_seen(issue_data["github_id"])
+            skipped_language += 1
             continue
         if not _passes_quality_gate(issue_data):
             mark_issue_seen(issue_data["github_id"])
+            skipped_quality += 1
             continue
         if await process_issue(issue_data, triage_engine, notify=False):
             new_count += 1
+        else:
+            skipped_claimed += 1
 
     message = search_note or (
         f"No fresh issues in the last {settings.issue_discovery_window_minutes} minutes"
@@ -390,7 +450,17 @@ async def poll_cycle(
         else None
     )
 
-    update_poll_state(len(issues), new_count, total_count, message)
+    update_poll_state(
+        len(issues),
+        new_count,
+        total_count,
+        message,
+        skip_label=skipped_label,
+        skip_language=skipped_language,
+        skip_quality=skipped_quality,
+        skip_claimed=skipped_claimed,
+        skip_seen=skipped_seen,
+    )
     logger.info(
         "Poll cycle complete: %d priority fetched, %d priority new | "
         "%d general fetched, %d general new, %d skipped (%s)",
@@ -610,6 +680,12 @@ async def run() -> None:
     # General feed scope: specific owner/repo pairs polled directly
     # (no more broad GitHub search).
     general_repos = [
+        # Recently added — polled first so their issues surface promptly.
+        "PostHog/posthog",
+        "HeyPuter/puter",
+        "strapi/strapi",
+        "twentyhq/twenty",
+        "SigNoz/signoz",
         "django/django",
         "encode/starlette",
         "encode/httpx",
@@ -683,6 +759,8 @@ async def run() -> None:
         "Seeed-Studio/kicad-mcp-server",
     ]
     replace_general_repos(general_repos)
+    for long_win in _LONG_WINDOW_REPOS:
+        set_general_repo_flags(long_win, is_long_window=True)
     resync_issue_priority_flags()
     purged_untracked = purge_untracked_repo_issues()
     if purged_untracked:
@@ -692,6 +770,9 @@ async def run() -> None:
     triage_engine = TriageEngine()
     pr_discovery = PRDiscovery()
     pr_reviewer = PRReviewer()
+
+    # Register webhooks for all tracked repos (idempotent — skips if already present).
+    await _ensure_repo_webhooks()
 
     logger.info(
         "Daemon started — polling every %ds (discovery window: last %d minutes) — db=%s token=%s",

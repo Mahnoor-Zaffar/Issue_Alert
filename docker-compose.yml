@@ -1,11 +1,23 @@
 services:
-  issue-alert:
+  api:
     build: .
-    container_name: issue-alert
-    restart: unless-stopped
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8090 --reload --reload-dir /app
     ports:
       - "8090:8090"
+    env_file: .env
     volumes:
-      - ./data:/app/data
-    env_file:
-      - .env
+      - .:/app
+      - app-data:/app/data
+    restart: unless-stopped
+
+  daemon:
+    build: .
+    command: python -m daemon.main
+    env_file: .env
+    volumes:
+      - .:/app
+      - app-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  app-data:

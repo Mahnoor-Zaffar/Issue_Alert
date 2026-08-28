@@ -45,6 +45,20 @@ export function fetchIssues(params = {}) {
   return get(`/api/issues?${q}`);
 }
 
+export function fetchPriorityIssues(params = {}) {
+  const q = new URLSearchParams(
+    Object.fromEntries(Object.entries(params).filter(([_, v]) => v != null && v !== ""))
+  ).toString();
+  return get(`/api/priority-issues?${q}`);
+}
+
+export function fetchGeneralIssues(params = {}) {
+  const q = new URLSearchParams(
+    Object.fromEntries(Object.entries(params).filter(([_, v]) => v != null && v !== ""))
+  ).toString();
+  return get(`/api/general-issues?${q}`);
+}
+
 export function fetchIssue(id) {
   return get(`/api/issues/${id}`);
 }

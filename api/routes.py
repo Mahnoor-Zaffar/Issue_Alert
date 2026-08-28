@@ -126,6 +126,70 @@ async def api_list_issues(
     }
 
 
+@router.get("/api/priority-issues")
+async def api_list_priority_issues(
+    limit: int = 50,
+    offset: int = 0,
+    language: str | None = None,
+    status: str | None = None,
+    label: str | None = None,
+    show_dismissed: bool = False,
+    bookmarked_only: bool = False,
+    claimed_only: bool = False,
+    difficulty: str | None = None,
+    bounty_only: bool = False,
+    hide_old_unclaimed: bool = False,
+):
+    return {
+        "issues": list_issues(
+            limit=limit,
+            offset=offset,
+            language=language,
+            status=status,
+            label=label,
+            show_dismissed=show_dismissed,
+            bookmarked_only=bookmarked_only,
+            claimed_only=claimed_only,
+            is_priority=True,
+            difficulty=difficulty,
+            bounty_only=bounty_only,
+            hide_old_unclaimed=hide_old_unclaimed,
+        )
+    }
+
+
+@router.get("/api/general-issues")
+async def api_list_general_issues(
+    limit: int = 50,
+    offset: int = 0,
+    language: str | None = None,
+    status: str | None = None,
+    label: str | None = None,
+    show_dismissed: bool = False,
+    bookmarked_only: bool = False,
+    claimed_only: bool = False,
+    difficulty: str | None = None,
+    bounty_only: bool = False,
+    hide_old_unclaimed: bool = False,
+):
+    return {
+        "issues": list_issues(
+            limit=limit,
+            offset=offset,
+            language=language,
+            status=status,
+            label=label,
+            show_dismissed=show_dismissed,
+            bookmarked_only=bookmarked_only,
+            claimed_only=claimed_only,
+            is_priority=False,
+            difficulty=difficulty,
+            bounty_only=bounty_only,
+            hide_old_unclaimed=hide_old_unclaimed,
+        )
+    }
+
+
 @router.get("/api/issues/top-picks")
 async def api_top_picks(limit: int = 3):
     return {"top_picks": get_top_picks(limit)}
@@ -630,11 +694,6 @@ async def api_trigger_poll():
 async def api_clear_data():
     clear_all_data()
     return {"status": "cleared"}
-
-
-@router.get("/api/issues/priority")
-async def api_priority_issues():
-    return {"issues": list_issues(is_priority=True)}
 
 
 @router.get("/api/priority-repos")

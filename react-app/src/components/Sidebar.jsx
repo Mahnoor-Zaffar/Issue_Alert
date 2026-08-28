@@ -175,6 +175,35 @@ export default function Sidebar({ stats, statsHistory, connected, onPollNow, onR
               )}
             </div>
           )}
+          {(stats?.skip_label || stats?.skip_language || stats?.skip_quality || stats?.skip_claimed || stats?.skip_seen) && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {stats.skip_seen > 0 && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-hairline/60 text-ink-muted">
+                  {stats.skip_seen} seen
+                </span>
+              )}
+              {stats.skip_label > 0 && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-warning/10 text-warning">
+                  {stats.skip_label} wrong label
+                </span>
+              )}
+              {stats.skip_language > 0 && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary-hover">
+                  {stats.skip_language} wrong lang
+                </span>
+              )}
+              {stats.skip_quality > 0 && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-error/10 text-error">
+                  {stats.skip_quality} low quality
+                </span>
+              )}
+              {stats.skip_claimed > 0 && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-success/10 text-success">
+                  {stats.skip_claimed} claimed
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
 

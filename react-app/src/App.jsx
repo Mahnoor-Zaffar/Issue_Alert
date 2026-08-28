@@ -285,23 +285,40 @@ export default function App() {
   }, [filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, filterBounty, searchQuery, sortBy]);
 
   const {
-    data,
-    issues: pageIssues,
-    page,
-    setPage,
-    hasNextPage,
-    isFetchingPage,
-    refetch,
+    data: priorityData,
+    issues: priorityPageIssues,
+    page: priorityPage,
+    setPage: setPriorityPage,
+    hasNextPage: priorityHasNextPage,
+    isFetchingPage: priorityFetchingPage,
+    refetch: refetchPriority,
   } = usePaginatedIssues({
     filterLang,
     filterStatus,
     filterDiff,
     filterLabel,
     filterSaved,
-    filterPriority,
     filterClaimed,
     filterBounty,
-  });
+  }, true);
+
+  const {
+    data: generalData,
+    issues: generalPageIssues,
+    page: generalPage,
+    setPage: setGeneralPage,
+    hasNextPage: generalHasNextPage,
+    isFetchingPage: generalFetchingPage,
+    refetch: refetchGeneral,
+  } = usePaginatedIssues({
+    filterLang,
+    filterStatus,
+    filterDiff,
+    filterLabel,
+    filterSaved,
+    filterClaimed,
+    filterBounty,
+  }, false);
 
   const filterKey = [
     filterLang, filterStatus, filterDiff, filterLabel, filterSaved, filterPriority, filterClaimed, filterBounty,
@@ -309,19 +326,21 @@ export default function App() {
   const lastFilterKey = useRef(filterKey);
 
   useEffect(() => {
-    const list = pageIssues || [];
-    if (!data) return;
+    const pList = priorityPageIssues || [];
+    const gList = generalPageIssues || [];
+    if (!priorityData && !generalData) return;
     const isNewFilter = lastFilterKey.current !== filterKey;
     lastFilterKey.current = filterKey;
     if (isNewFilter) {
-      setPriorityIssues(list.filter((i) => i.is_priority));
-      setIssues(list.filter((i) => !i.is_priority));
+      setPriorityIssues(pList);
+      setIssues(gList);
     } else {
-      setPriorityIssues(list.filter((i) => i.is_priority));
-      setIssues(list.filter((i) => !i.is_priority));
+      setPriorityIssues(pList);
+      setIssues(gList);
     }
-    list.forEach((i) => knownIds.current.add(i.id));
-  }, [data, pageIssues, filterKey]);
+    pList.forEach((i) => knownIds.current.add(i.id));
+    gList.forEach((i) => knownIds.current.add(i.id));
+  }, [priorityData, generalData, priorityPageIssues, generalPageIssues, filterKey]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -427,14 +446,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    refetch();
+    refetchPriority();
+    refetchGeneral();
   }, [filterKey]);
 
   const handleRefresh = useCallback(() => {
-    refetch();
+    refetchPriority();
+    refetchGeneral();
     loadStats();
     showToast("Refreshed", "success");
-  }, [refetch, loadStats, showToast]);
+  }, [refetchPriority, refetchGeneral, loadStats, showToast]);
 
   const handlePollNow = useCallback(async () => {
     try {
@@ -462,7 +483,8 @@ export default function App() {
           body: JSON.stringify({ value: false }),
         }).then(() => {
           showToast("Undone", "success");
-          refetch();
+          refetchPriority();
+          refetchGeneral();
         }).catch(() => {
           showToast("Undo failed", "error");
         });
@@ -745,6 +767,26 @@ export default function App() {
                 </div>
               ))}
             </div>
+            <div className={`h-12 w-full flex items-center justify-center gap-3 mt-3 ${priorityFetchingPage ? "opacity-60" : ""}`}>
+              <button
+                onClick={() => setPriorityPage((p) => Math.max(0, p - 1))}
+                disabled={priorityPage === 0 || priorityFetchingPage}
+                className="toolbar-btn text-ink-muted border-hairline hover:text-ink disabled:opacity-40 disabled:hover:text-ink-muted text-xs"
+              >
+                ← Prev
+              </button>
+              <span className="text-[11px] text-ink-tertiary tabular-nums">
+                Page {priorityPage + 1} · {priorityPageIssues.length} shown
+                {priorityFetchingPage && " · loading…"}
+              </span>
+              <button
+                onClick={() => setPriorityPage((p) => p + 1)}
+                disabled={!priorityHasNextPage || priorityFetchingPage}
+                className="toolbar-btn text-ink-muted border-hairline hover:text-ink disabled:opacity-40 disabled:hover:text-ink-muted text-xs"
+              >
+                Next →
+              </button>
+            </div>
           </section>
         )}
 
@@ -797,21 +839,21 @@ export default function App() {
           )}
         </div>
 
-        <div className={`h-16 w-full flex items-center justify-center gap-3 ${isFetchingPage ? "opacity-60" : ""}`}>
+        <div className={`h-16 w-full flex items-center justify-center gap-3 ${generalFetchingPage ? "opacity-60" : ""}`}>
           <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0 || isFetchingPage}
+            onClick={() => setGeneralPage((p) => Math.max(0, p - 1))}
+            disabled={generalPage === 0 || generalFetchingPage}
             className="toolbar-btn text-ink-muted border-hairline hover:text-ink disabled:opacity-40 disabled:hover:text-ink-muted"
           >
             ← Prev
           </button>
           <span className="text-[12px] text-ink-tertiary tabular-nums">
-            Page {page + 1} · {pageIssues.length} shown
-            {isFetchingPage && " · loading…"}
+            Page {generalPage + 1} · {generalPageIssues.length} shown
+            {generalFetchingPage && " · loading…"}
           </span>
           <button
-            onClick={() => setPage((p) => p + 1)}
-            disabled={!hasNextPage || isFetchingPage}
+            onClick={() => setGeneralPage((p) => p + 1)}
+            disabled={!generalHasNextPage || generalFetchingPage}
             className="toolbar-btn text-ink-muted border-hairline hover:text-ink disabled:opacity-40 disabled:hover:text-ink-muted"
           >
             Next →

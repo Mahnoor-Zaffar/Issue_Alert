@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     database_path: Path = Path("./data/triage.db")
     poll_interval_seconds: int = 1800
     issue_discovery_window_minutes: int = 7200
+    issue_long_window_minutes: int = 43200
     max_issue_comments: int = 3
     max_file_bytes: int = 20000
     api_host: str = "127.0.0.1"

@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchIssues } from "./api";
+import { fetchIssues, fetchPriorityIssues, fetchGeneralIssues } from "./api";
 
 export const PAGE_SIZE = 30;
 
@@ -11,13 +11,18 @@ function buildParams(filters) {
   if (filters.filterDiff) params.difficulty = filters.filterDiff;
   if (filters.filterLabel) params.label = filters.filterLabel;
   if (filters.filterSaved) params.bookmarked_only = "true";
-  if (filters.filterPriority) params.is_priority = "true";
   if (filters.filterClaimed) params.claimed_only = "true";
   if (filters.filterBounty) params.bounty_only = "true";
   return params;
 }
 
-export function usePaginatedIssues(filters) {
+function pickFetcher(isPriority) {
+  if (isPriority === true) return fetchPriorityIssues;
+  if (isPriority === false) return fetchGeneralIssues;
+  return fetchIssues;
+}
+
+export function usePaginatedIssues(filters, isPriority = undefined) {
   const [page, setPage] = useState(0);
   const prevFilterKey = useRef(JSON.stringify(filters));
 
@@ -28,10 +33,11 @@ export function usePaginatedIssues(filters) {
     setPage(0);
   }
 
+  const fetcher = pickFetcher(isPriority);
+
   const query = useQuery({
-    // server-side filter params (searchQuery + sortBy stay client-side)
-    queryKey: ["issues", page, filterKey],
-    queryFn: () => fetchIssues({ ...buildParams(filters), offset: page * PAGE_SIZE }),
+    queryKey: ["issues", isPriority, page, filterKey],
+    queryFn: () => fetcher({ ...buildParams(filters), offset: page * PAGE_SIZE }),
     placeholderData: (prev) => prev,
   });
 

@@ -24,6 +24,31 @@ _CLAIMED_BODY_RE = re.compile(
 
 _GOOD_ISSUE_LABELS = frozenset({"good first issue", "good-first-issue", "help wanted", "help-wanted"})
 
+# Canonical aliases for common label variants used by large repos.
+# Maps variant → canonical preferred label so repos like Twenty, SigNoz,
+# and Strapi surface issues that would otherwise be filtered out.
+_LABEL_ALIASES: dict[str, str] = {
+    "type: bug": "bug",
+    "issue: bug": "bug",
+    "type: enhancement": "enhancement",
+    "issue: enhancement": "enhancement",
+    "type: feature": "feature",
+    "type: fix": "fix",
+    "type: improvement": "improvement",
+    "type: good first issue": "good first issue",
+    "good-first-issue": "good first issue",
+    "help-wanted": "help wanted",
+    "kind: bug": "bug",
+    "kind: enhancement": "enhancement",
+    "kind: feature": "feature",
+    "area: bug": "bug",
+    "c: bug": "bug",
+    "c: enhancement": "enhancement",
+    "c: feature": "feature",
+    "bug: confirmed": "bug",
+    "confirmed": "bug",
+}
+
 _BOUNTY_LABELS = frozenset(
     {
         "bounty",
@@ -169,7 +194,8 @@ def has_good_issue_label(item: dict[str, Any]) -> bool:
     if not preferred:
         preferred = set(_GOOD_ISSUE_LABELS)
     labels = [label["name"].lower() for label in item.get("labels", [])]
-    return bool(preferred & set(labels))
+    canonical = {_LABEL_ALIASES.get(lb, lb) for lb in labels}
+    return bool(preferred & canonical)
 
 
 def passes_claim_verification(
@@ -227,7 +253,8 @@ def matches_label_preference(issue: dict[str, Any], prefs: dict[str, Any] | None
     if not preferred:
         return True
     issue_labels = {label.lower() for label in (issue.get("labels") or [])}
-    return bool(preferred & issue_labels)
+    canonical = {_LABEL_ALIASES.get(lb, lb) for lb in issue_labels}
+    return bool(preferred & canonical)
 
 
 # Unicode blocks that indicate non-English text
@@ -380,8 +407,6 @@ class GitHubPoller:
             logger.warning("No general-feed repos configured — skipping general fetch")
             return [], 0, "No general-feed repos configured"
 
-        # Stagger general repos in round-robin batches so we never fire a
-        # sustained burst of search requests in a single cycle.
         batch = self._general_batch(repos)
 
         all_issues: list[dict[str, Any]] = []
@@ -392,15 +417,16 @@ class GitHubPoller:
             if is_priority_repo(full_name):
                 logger.debug("Skipping %s in general fetch — already in priority scope", full_name)
                 continue
-            query = build_priority_query(full_name, cutoff)
-            repo_issues, page_total, search_ok = await self._search_pages(query, max_pages=1)
-            if not search_ok:
-                logger.warning("Search unavailable for %s — skipping this cycle", full_name)
+            is_long = bool(r.get("is_long_window"))
+            repo_cutoff = freshness_cutoff_utc(window_minutes=settings.issue_long_window_minutes) if is_long else cutoff
+            repo_issues, ok = await self._fetch_repo_issues_rest(full_name, repo_cutoff, max_pages=2)
+            if not ok:
+                logger.warning("Fetch unavailable for %s — skipping this cycle", full_name)
                 continue
-            total_count += page_total
+            total_count += len(repo_issues)
 
             for item in repo_issues:
-                if not passes_claim_verification(item, cutoff):
+                if not passes_claim_verification(item, repo_cutoff):
                     continue
                 if not has_good_issue_label(item):
                     continue
@@ -408,6 +434,7 @@ class GitHubPoller:
                 if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):
                     issue["is_priority"] = False
                     issue["is_high_priority"] = False
+                    issue["is_long_window"] = is_long
                     all_issues.append(issue)
 
         return all_issues, total_count, None
@@ -431,6 +458,78 @@ class GitHubPoller:
             batch = repos + batch[: per_cycle - len(batch)]
         return batch
 
+    async def _fetch_repo_issues_rest(
+        self,
+        full_name: str,
+        cutoff: datetime,
+        max_pages: int = 2,
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Fetch open issues from a single repo via the REST API.
+
+        Uses ``GET /repos/{owner}/{repo}/issues`` which returns issues sorted
+        by creation date (newest first), without the interaction-sorting
+        quirks or rate limits of the search API.
+        """
+        all_items: list[dict[str, Any]] = []
+        any_success = False
+
+        for page in range(1, max_pages + 1):
+            items, ok = await self._fetch_repo_issues_page(full_name, page)
+            if ok:
+                any_success = True
+            if not items:
+                break
+            all_items.extend(items)
+            if len(items) < settings.search_per_page:
+                break
+
+        # Client-side date filter since REST API doesn't support created:>=
+        filtered = [
+            it
+            for it in all_items
+            if not it.get("created_at") or datetime.fromisoformat(it["created_at"].replace("Z", "+00:00")) >= cutoff
+        ]
+        return filtered, any_success
+
+    async def _fetch_repo_issues_page(self, full_name: str, page: int) -> tuple[list[dict[str, Any]], bool]:
+        """Fetch a single page of issues from ``GET /repos/{owner}/{repo}/issues``."""
+        await self._rate_limiter.wait_if_needed()
+
+        params = {
+            "state": "open",
+            "sort": "created",
+            "direction": "desc",
+            "per_page": settings.search_per_page,
+            "page": page,
+        }
+
+        for attempt in range(4):
+            try:
+                response = await self._client.get(f"/repos/{full_name}/issues", params=params)
+                self._rate_limiter.update_from_headers(response.headers)
+
+                if response.status_code in (403, 429):
+                    await self._rate_limiter.backoff(attempt, response.headers)
+                    continue
+
+                response.raise_for_status()
+                data = response.json()
+                self._rate_limiter.mark_search_complete()
+
+                # REST API returns both issues and PRs; filter out PRs
+                items = [it for it in data if "pull_request" not in it]
+                return items, True
+
+            except httpx.HTTPStatusError:
+                logger.exception("GitHub API HTTP error fetching %s page %d", full_name, page)
+                return [], False
+            except httpx.RequestError:
+                logger.exception("GitHub API request failed fetching %s page %d", full_name, page)
+                return [], False
+
+        logger.error("GitHub fetch page %d for %s failed after retries", page, full_name)
+        return [], False
+
     async def _fetch_repo_issues(
         self,
         full_name: str,
@@ -441,9 +540,16 @@ class GitHubPoller:
         query: str | None = None,
         is_small_target: bool = False,
     ) -> list[dict[str, Any]]:
-        if query is None:
-            query = build_priority_query(full_name, cutoff, include_created=not is_small_target)
-        items, _, ok = await self._search_pages(query, max_pages=max_pages)
+        """Fetch issues for a priority repo.
+
+        For individual repos uses the REST API directly. For org-scoped
+        queries (query provided) falls back to the search API.
+        """
+        if query is not None:
+            # Org query — must use search API
+            items, _, ok = await self._search_pages(query, max_pages=max_pages)
+        else:
+            items, ok = await self._fetch_repo_issues_rest(full_name, cutoff, max_pages=max_pages)
         if not ok:
             return []
         results: list[dict[str, Any]] = []
