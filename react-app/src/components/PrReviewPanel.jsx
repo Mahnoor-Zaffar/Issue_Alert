@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { reviewPR, postPRReview } from "../api";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { fetchPR, reviewPR, postPRReview } from "../api";
 
 function Section({ title, children }) {
   return (
@@ -13,16 +13,32 @@ function Section({ title, children }) {
 }
 
 export default function PrReviewPanel({ pr, onClose, showToast }) {
+  const [livePr, setLivePr] = useState(pr);
   const [reviewing, setReviewing] = useState(false);
   const [posting, setPosting] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const pollingRef = useRef(true);
 
-  const reviewMarkdown = pr?.review_markdown;
-  const reviewId = pr?.review_id;
-  const reviewStatus = pr?.review_status;
-  const posted = !!pr?.posted_to_github;
+  useEffect(() => {
+    setLivePr(pr);
+    pollingRef.current = true;
+    const refresh = () => {
+      fetchPR(pr.id).then((d) => setLivePr(d)).catch(() => {});
+    };
+    refresh();
+    const timer = setInterval(() => {
+      if (!pollingRef.current) return;
+      fetchPR(pr.id).then((d) => setLivePr(d)).catch(() => {});
+    }, 5000);
+    return () => { pollingRef.current = false; clearInterval(timer); };
+  }, [pr.id]);
 
-  if (!pr) return null;
+  const reviewMarkdown = livePr?.review_markdown;
+  const reviewId = livePr?.review_id;
+  const reviewStatus = livePr?.review_status;
+  const posted = !!livePr?.posted_to_github;
+
+  if (!livePr) return null;
 
   const renderMD = (text) => {
     if (!text) return null;
@@ -40,19 +56,20 @@ export default function PrReviewPanel({ pr, onClose, showToast }) {
   const handleReview = useCallback(async () => {
     setReviewing(true);
     try {
-      await reviewPR(pr.id);
+      await reviewPR(livePr.id);
       showToast?.("Review queued — check back in a moment", "success");
     } catch (e) {
       showToast?.(e?.message || "Failed to queue review", "error");
     }
     setReviewing(false);
-  }, [pr.id, showToast]);
+    fetchPR(livePr.id).then((d) => setLivePr(d)).catch(() => {});
+  }, [livePr.id, showToast]);
 
   const handlePost = useCallback(async () => {
     if (!reviewId) return;
     setPosting(true);
     try {
-      const data = await postPRReview(pr.id, reviewId);
+      const data = await postPRReview(livePr.id, reviewId);
       showToast?.("Review posted to GitHub as a comment", "success");
       setConfirming(false);
       window.location.reload();
@@ -60,7 +77,7 @@ export default function PrReviewPanel({ pr, onClose, showToast }) {
       showToast?.(e?.message || "Failed to post review", "error");
     }
     setPosting(false);
-  }, [pr.id, reviewId, showToast]);
+  }, [livePr.id, reviewId, showToast]);
 
   return (
     <>
@@ -68,9 +85,9 @@ export default function PrReviewPanel({ pr, onClose, showToast }) {
       <div className="fixed top-0 right-0 w-[540px] max-w-[92vw] h-full bg-surface-1 border-l border-hairline z-50 flex flex-col shadow-2xl panel-in">
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-hairline shrink-0">
           <div className="min-w-0">
-            <h2 className="text-[14px] font-medium tracking-[-0.01em] leading-snug">{pr.title}</h2>
+            <h2 className="text-[14px] font-medium tracking-[-0.01em] leading-snug">{livePr.title}</h2>
             <span className="text-[12px] text-ink-subtle mt-[2px] block">
-              {pr.repo_full_name} · PR #{pr.number}
+              {livePr.repo_full_name} · PR #{livePr.number}
             </span>
           </div>
           <button onClick={onClose} className="panel-close shrink-0">✕</button>
@@ -79,16 +96,16 @@ export default function PrReviewPanel({ pr, onClose, showToast }) {
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           <Section title="#️⃣ Pull Request">
             <a
-              href={pr.html_url}
+              href={livePr.html_url}
               target="_blank"
               rel="noopener"
               className="text-[13px] text-primary hover:text-primary-hover underline"
             >
               Open on GitHub ↗
             </a>
-            {pr.head_sha && (
+            {livePr.head_sha && (
               <p className="text-[11px] text-ink-tertiary mt-[4px] font-mono">
-                head {pr.head_sha.slice(0, 7)}
+                head {livePr.head_sha.slice(0, 7)}
               </p>
             )}
           </Section>

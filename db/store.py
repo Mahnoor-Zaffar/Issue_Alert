@@ -1469,6 +1469,26 @@ def has_pull(repo_full_name: str, number: int) -> bool:
         return row is not None
 
 
+def delete_pull(repo_full_name: str, number: int) -> bool:
+    """Delete a pull request and its reviews (archived/read-only repos)."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM pulls WHERE repo_full_name = ? AND number = ?",
+            (repo_full_name, number),
+        )
+        return cursor.rowcount > 0
+
+
+def delete_pulls_for_repo(repo_full_name: str) -> int:
+    """Delete all pulls (and cascaded reviews) for an archived/read-only repo."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM pulls WHERE repo_full_name = ?",
+            (repo_full_name,),
+        )
+        return cursor.rowcount
+
+
 def list_open_prs(limit: int = 100) -> list[dict[str, Any]]:
     with get_connection() as conn:
         conn.row_factory = sqlite3.Row

@@ -15,6 +15,11 @@ from daemon.rate_limiter import GitHubRateLimiter
 
 logger = logging.getLogger(__name__)
 
+
+class ArchivedRepoError(Exception):
+    """Raised when review is requested for an archived (read-only) repo."""
+
+
 _REVIEW_SYSTEM_PROMPT = """\
 You write constructive community PR review comments for open-source repositories. \
 You review a pull request by reading its diff, its CI check status, and any codebase \
@@ -85,6 +90,9 @@ class PRReviewer:
         number = pull["number"]
         head_sha = pull.get("head_sha")
 
+        if await self._is_archived(repo):
+            raise ArchivedRepoError(f"Repo {repo} is archived (read-only) — refusing to review")
+
         diff = await self._fetch_pr_diff(repo, number)
         checks = await self._fetch_check_runs(repo, head_sha) if head_sha else []
         files = await self._fetch_pr_files(repo, number)
@@ -151,6 +159,18 @@ class PRReviewer:
 
         lines.append("\nWrite your community PR review comment now, following the rules in your instructions.")
         return "\n".join(lines)
+
+    async def _is_archived(self, repo: str) -> bool:
+        await self._rate_limiter.wait_if_needed()
+        try:
+            response = await self._client.get(f"/repos/{repo}")
+            self._rate_limiter.update_from_headers(response.headers)
+            if response.status_code == 200:
+                return bool(response.json().get("archived"))
+            return False
+        except httpx.HTTPError:
+            logger.warning("Failed to check archived status for %s", repo)
+            return False
 
     async def _fetch_pr_diff(self, repo: str, number: int) -> str:
         await self._rate_limiter.wait_if_needed()

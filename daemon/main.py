@@ -18,10 +18,11 @@ from daemon.poller import (
     passes_claim_verification,
 )
 from daemon.pr_discovery import PRDiscovery
-from daemon.reviewer import PRReviewer
+from daemon.reviewer import ArchivedRepoError, PRReviewer
 from daemon.triage import TriageEngine
 from db.store import (
     count_auto_reviews_today,
+    delete_pull,
     dequeue_triage,
     fetch_pending_webhooks,
     get_errored_issues_for_retry,
@@ -305,6 +306,10 @@ async def _review_single(
             if notify:
                 notify_pr_review(pull["repo_full_name"], pull["number"], pull["html_url"])
             return True
+        except ArchivedRepoError:
+            logger.info("Skipping %s#%s — repo is archived (read-only)", pull["repo_full_name"], pull["number"])
+            delete_pull(pull["repo_full_name"], pull["number"])
+            return False
         except Exception as exc:
             logger.exception("PR review failed for %s#%s", pull["repo_full_name"], pull["number"])
             mark_review_error(pull_id, str(exc)[:500])

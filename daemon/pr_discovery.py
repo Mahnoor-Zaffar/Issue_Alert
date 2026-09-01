@@ -4,8 +4,11 @@ from typing import Any
 import httpx
 
 from config.settings import settings
+from daemon.archived import is_archived_from_payload
 from daemon.rate_limiter import GitHubRateLimiter
 from db.store import (
+    delete_pull,
+    delete_pulls_for_repo,
     get_general_repos,
     get_priority_repos,
     get_pull_by_repo_number,
@@ -23,6 +26,7 @@ class PRDiscovery:
 
     def __init__(self) -> None:
         self._rate_limiter = GitHubRateLimiter()
+        self._archived_repos: set[str] = set()
         self._client = httpx.AsyncClient(
             base_url="https://api.github.com",
             headers={
@@ -43,6 +47,8 @@ class PRDiscovery:
         scanned = 0
         for repo in repos:
             full_name = repo["full_name"]
+            if await self._is_archived(full_name):
+                continue
             prs = await self._fetch_pulls(full_name)
             if prs is None:
                 continue
@@ -59,6 +65,8 @@ class PRDiscovery:
         scanned = 0
         for repo in repos:
             full_name = repo["full_name"]
+            if await self._is_archived(full_name):
+                continue
             prs = await self._fetch_pulls(full_name)
             if prs is None:
                 continue
@@ -68,6 +76,29 @@ class PRDiscovery:
         if scanned:
             logger.info("Scanned %d general repo(s) for open PRs", scanned)
         return scanned
+
+    async def _is_archived(self, full_name: str) -> bool:
+        if full_name in self._archived_repos:
+            return True
+        await self._rate_limiter.wait_if_needed()
+        try:
+            response = await self._client.get(f"/repos/{full_name}")
+            self._rate_limiter.update_from_headers(response.headers)
+            if response.status_code == 200:
+                archived = bool(response.json().get("archived"))
+                if archived:
+                    self._archived_repos.add(full_name)
+                    removed = delete_pulls_for_repo(full_name)
+                    logger.info(
+                        "%s is archived (read-only) — skipped; removed %d stored PR(s)",
+                        full_name,
+                        removed,
+                    )
+                return archived
+            return False
+        except httpx.HTTPError:
+            logger.warning("Failed to check archived status for %s", full_name)
+            return False
 
     async def ingest_webhook(self, payload: dict[str, Any]) -> bool:
         """Ingest a pull_request webhook payload. Returns True if a PR was upserted."""
@@ -83,6 +114,10 @@ class PRDiscovery:
             return False
         if not has_pull(full_name, number):
             logger.info("Ingesting new PR from webhook: %s#%d", full_name, number)
+        if repo.get("archived"):
+            logger.info("Webhook PR skipped for archived repo %s", full_name)
+            delete_pulls_for_repo(full_name)
+            return False
         self._upsert_from_github(
             pr,
             is_priority=True,
@@ -98,7 +133,7 @@ class PRDiscovery:
         is_priority: bool,
         ingested_via: str,
         fallback_repo: str | None = None,
-    ) -> int:
+    ) -> int | None:
         number = pr.get("number") or 0
         repo_url = pr.get("html_url") or ""
         head = pr.get("head") or {}
@@ -109,6 +144,15 @@ class PRDiscovery:
             repo_name = base_repo.get("full_name")
         if not repo_name:
             repo_name = _repo_from_url(repo_url) or "unknown/unknown"
+
+        if is_archived_from_payload(pr):
+            logger.info(
+                "Skipping %s#%s — repo is archived (read-only); removing any stored review",
+                repo_name,
+                number,
+            )
+            delete_pull(repo_name, number)
+            return None
 
         labels = [(label.get("name") or "") for label in (pr.get("labels") or []) if label.get("name")]
 

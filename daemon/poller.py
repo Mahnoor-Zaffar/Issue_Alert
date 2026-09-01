@@ -417,6 +417,9 @@ class GitHubPoller:
             if is_priority_repo(full_name):
                 logger.debug("Skipping %s in general fetch — already in priority scope", full_name)
                 continue
+            if (await self._fetch_repo_info(full_name)).get("archived"):
+                logger.info("Skipping %s — repo is archived (read-only)", full_name)
+                continue
             is_long = bool(r.get("is_long_window"))
             repo_cutoff = freshness_cutoff_utc(window_minutes=settings.issue_long_window_minutes) if is_long else cutoff
             repo_issues, ok = await self._fetch_repo_issues_rest(full_name, repo_cutoff, max_pages=2)
@@ -622,6 +625,9 @@ class GitHubPoller:
                     query=query,
                 )
             else:
+                if (await self._fetch_repo_info(r["full_name"])).get("archived"):
+                    logger.info("Skipping %s — repo is archived (read-only)", r["full_name"])
+                    continue
                 repo_issues = await self._fetch_repo_issues(
                     r["full_name"],
                     cutoff,
@@ -705,9 +711,10 @@ class GitHubPoller:
                 info = {
                     "language": (data.get("language") or "").lower() or None,
                     "stars": data.get("stargazers_count", 0),
+                    "archived": bool(data.get("archived")),
                 }
             else:
-                info = {"language": None, "stars": 0}
+                info = {"language": None, "stars": 0, "archived": False}
         except httpx.HTTPError, KeyError:
             logger.warning("Failed to fetch repo info for %s", repo_full_name)
             info = {"language": None, "stars": 0}
@@ -779,6 +786,10 @@ class GitHubPoller:
         repo = payload.get("repository", {})
         repo_full_name = repo.get("full_name")
         if not repo_full_name:
+            return None
+
+        if repo.get("archived"):
+            logger.info("Webhook issue skipped for archived repo %s", repo_full_name)
             return None
 
         labels = [label["name"] for label in issue.get("labels", [])]
