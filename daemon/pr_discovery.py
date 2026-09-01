@@ -6,6 +6,7 @@ import httpx
 from config.settings import settings
 from daemon.rate_limiter import GitHubRateLimiter
 from db.store import (
+    get_general_repos,
     get_priority_repos,
     get_pull_by_repo_number,
     has_pull,
@@ -30,6 +31,7 @@ class PRDiscovery:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
             timeout=30.0,
+            follow_redirects=True,
         )
 
     async def close(self) -> None:
@@ -49,6 +51,22 @@ class PRDiscovery:
                 self._upsert_from_github(pr, is_priority=True, ingested_via="scan")
         if scanned:
             logger.info("Scanned %d priority repo(s) for open PRs", scanned)
+        return scanned
+
+    async def scan_general_repos(self) -> int:
+        """Upsert open PRs from all general-feed repos. Returns number of scans performed."""
+        repos = get_general_repos()
+        scanned = 0
+        for repo in repos:
+            full_name = repo["full_name"]
+            prs = await self._fetch_pulls(full_name)
+            if prs is None:
+                continue
+            scanned += 1
+            for pr in prs:
+                self._upsert_from_github(pr, is_priority=False, ingested_via="scan")
+        if scanned:
+            logger.info("Scanned %d general repo(s) for open PRs", scanned)
         return scanned
 
     async def ingest_webhook(self, payload: dict[str, Any]) -> bool:

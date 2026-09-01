@@ -490,7 +490,7 @@ export default function App() {
         });
       },
     });
-  }, [showToast, refetch]);
+  }, [showToast, refetchPriority, refetchGeneral]);
 
   useEffect(() => {
     const handler = (e) => {

@@ -21,9 +21,11 @@ from daemon.pr_discovery import PRDiscovery
 from daemon.reviewer import PRReviewer
 from daemon.triage import TriageEngine
 from db.store import (
+    count_auto_reviews_today,
     dequeue_triage,
     fetch_pending_webhooks,
     get_errored_issues_for_retry,
+    get_fresh_pulls_for_auto_review,
     get_general_repos,
     get_issue,
     get_pending_triage_requests,
@@ -70,6 +72,15 @@ _SMALL_TARGET_REPOS = (
     "qilimanjaro-tech/qililab",
 )
 
+# Number of fresh (never-reviewed) open PRs auto-reviewed each time the PR
+# review worker runs. Store-only: generated reviews are saved locally and never
+# auto-posted to GitHub; the user decides when (or if) to post.
+_AUTO_REVIEW_PER_CYCLE = 5
+
+# Hard daily budget for auto-generated reviews so background auto-review can't
+# grind through the whole open-PR backlog in one sitting.
+_AUTO_REVIEW_DAILY_CAP = 20
+
 # General-feed repos whose issues should use the long discovery window (30d by
 # default) rather than the freshness window. Their older good-label issues
 # still surface in the general feed.
@@ -91,7 +102,12 @@ async def _ensure_repo_webhooks() -> None:
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
-    async with httpx.AsyncClient(headers=headers, timeout=15) as client:
+    async with httpx.AsyncClient(
+        base_url="https://api.github.com",
+        headers=headers,
+        timeout=15,
+        follow_redirects=True,
+    ) as client:
         tracked = {r["full_name"] for r in get_priority_repos()} | {r["full_name"] for r in get_general_repos()}
         for full_name in tracked:
             try:
@@ -276,15 +292,18 @@ async def process_webhooks(
     return processed
 
 
-async def _review_single(pull: dict[str, Any], reviewer: PRReviewer, sem: asyncio.Semaphore) -> bool:
+async def _review_single(
+    pull: dict[str, Any], reviewer: PRReviewer, sem: asyncio.Semaphore, *, notify: bool = True, source: str = "manual"
+) -> bool:
     """Generate a PR review and store it. Returns True if a review was produced."""
     pull_id = pull["id"]
     async with sem:
         try:
             review_markdown = await reviewer.review_pull(pull)
-            save_pr_review(pull_id, review_markdown, status="ready")
+            save_pr_review(pull_id, review_markdown, status="ready", source=source)
             logger.info("PR review ready: %s#%s", pull["repo_full_name"], pull["number"])
-            notify_pr_review(pull["repo_full_name"], pull["number"], pull["html_url"])
+            if notify:
+                notify_pr_review(pull["repo_full_name"], pull["number"], pull["html_url"])
             return True
         except Exception as exc:
             logger.exception("PR review failed for %s#%s", pull["repo_full_name"], pull["number"])
@@ -293,15 +312,28 @@ async def _review_single(pull: dict[str, Any], reviewer: PRReviewer, sem: asynci
 
 
 async def process_pr_reviews(reviewer: PRReviewer) -> int:
-    """Generate reviews only for PRs the user explicitly queued. Returns count of new reviews."""
-    pending = get_pulls_needing_review()
-    if not pending:
-        return 0
+    """Generate reviews for PRs the user explicitly queued, plus auto-review a
+    bounded number of fresh PRs (store-only, never auto-posted) up to the daily
+    cap. Returns count of new reviews."""
     sem = asyncio.Semaphore(2)
     done = 0
+
+    # 1) User-queued PRs first (status 'reviewing' or 'error') — notify on completion.
+    #    These are always processed regardless of the daily auto cap.
+    pending = get_pulls_needing_review()
     for pull in pending:
-        if await _review_single(pull, reviewer, sem):
+        if await _review_single(pull, reviewer, sem, notify=True):
             done += 1
+
+    # 2) Auto-review fresh PRs that have never been queued. Store-only (no notify)
+    #    and capped to the remaining daily budget.
+    remaining = _AUTO_REVIEW_DAILY_CAP - count_auto_reviews_today()
+    if remaining > 0:
+        fresh = get_fresh_pulls_for_auto_review(limit=min(_AUTO_REVIEW_PER_CYCLE, remaining))
+        for pull in fresh:
+            if await _review_single(pull, reviewer, sem, notify=False, source="auto"):
+                done += 1
+
     if done:
         logger.info("Generated %d PR review(s)", done)
     return done
@@ -397,6 +429,7 @@ async def poll_cycle(
 
     if pr_discovery:
         await pr_discovery.scan_priority_repos()
+        await pr_discovery.scan_general_repos()
 
     all_priority = await poller.fetch_priority_issues()
     priority_new = 0

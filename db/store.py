@@ -41,8 +41,7 @@ MIGRATIONS = [
     "ALTER TABLE daemon_state ADD COLUMN skip_quality INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE daemon_state ADD COLUMN skip_claimed INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE daemon_state ADD COLUMN skip_seen INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE general_repos ADD COLUMN is_long_window INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE issues ADD COLUMN is_long_window INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE pr_reviews ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
     "CREATE TABLE IF NOT EXISTS pulls ("
     " id INTEGER PRIMARY KEY AUTOINCREMENT,"
     " repo_full_name TEXT NOT NULL,"
@@ -71,6 +70,7 @@ MIGRATIONS = [
     " posted_to_github INTEGER NOT NULL DEFAULT 0,"
     " github_review_id INTEGER,"
     " error_message TEXT,"
+    " source TEXT NOT NULL DEFAULT 'manual',"
     " created_at TEXT NOT NULL DEFAULT (datetime('now')),"
     " updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
     ")",
@@ -1480,15 +1480,50 @@ def list_open_prs(limit: int = 100) -> list[dict[str, Any]]:
                LEFT JOIN pr_reviews pr ON pr.pull_id = p.id
                WHERE p.state = 'open'
                ORDER BY
-                 -- Pulls needing attention first: ready reviews, then queued, then fresh
-                 CASE WHEN pr.review_markdown IS NOT NULL THEN 0
-                      WHEN pr.status = 'reviewing' THEN 1
-                      ELSE 2 END,
-                 p.updated_at DESC
+                 -- Fresh PRs that still need a review surface first; PRs that
+                 -- already have a (possibly old) review sink below by recency.
+                 CASE WHEN pr.status IS NULL THEN 0 ELSE 1 END,
+                 COALESCE(pr.updated_at, p.updated_at) DESC
                LIMIT ?""",
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_fresh_pulls_for_auto_review(limit: int = 5) -> list[dict[str, Any]]:
+    """Open PRs that have never been queued/reviewed (no pr_reviews row) and
+    have a fetchable head SHA, newest first. Used to auto-generate (store-only)
+    reviews for fresh PRs in the background.
+    """
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT p.*
+               FROM pulls p
+               LEFT JOIN pr_reviews pr ON pr.pull_id = p.id
+               WHERE p.state = 'open'
+                 AND pr.id IS NULL
+                 AND p.head_sha IS NOT NULL
+               ORDER BY p.updated_at DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def count_auto_reviews_today() -> int:
+    """Number of auto-generated (store-only) PR reviews recorded today (UTC).
+
+    Used to cap background auto-review budget per day so it can't grind through
+    the whole backlog in one sitting.
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS c FROM pr_reviews WHERE source = 'auto' AND created_at LIKE ?",
+            (today + "%",),
+        ).fetchone()
+        return int(row["c"] if row else 0)
 
 
 def get_pull(pull_id: int) -> dict[str, Any] | None:
@@ -1521,6 +1556,7 @@ def save_pr_review(
     review_markdown: str,
     *,
     status: str = "ready",
+    source: str = "manual",
 ) -> int:
     """Store a completed (or updated) review; returns pr_reviews.id."""
     now = _utcnow()
@@ -1532,16 +1568,16 @@ def save_pr_review(
         if existing:
             conn.execute(
                 """UPDATE pr_reviews
-                   SET review_markdown = ?, status = ?, error_message = NULL, updated_at = ?
+                   SET review_markdown = ?, status = ?, error_message = NULL, source = ?, updated_at = ?
                    WHERE id = ?""",
-                (review_markdown, status, now, existing["id"]),
+                (review_markdown, status, source, now, existing["id"]),
             )
             review_id = existing["id"]
         else:
             cursor = conn.execute(
-                """INSERT INTO pr_reviews (pull_id, review_markdown, status)
-                   VALUES (?, ?, ?)""",
-                (pull_id, review_markdown, status),
+                """INSERT INTO pr_reviews (pull_id, review_markdown, status, source)
+                   VALUES (?, ?, ?, ?)""",
+                (pull_id, review_markdown, status, source),
             )
             review_id = cursor.lastrowid
         conn.execute(
