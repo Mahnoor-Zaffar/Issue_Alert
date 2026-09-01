@@ -26,6 +26,9 @@ export default function PrReviewPanel({ pr, onClose, showToast }) {
       fetchPR(pr.id).then((d) => setLivePr(d)).catch(() => {});
     };
     refresh();
+    if (!pr.review_status) {
+      reviewPR(pr.id).catch(() => {});
+    }
     const timer = setInterval(() => {
       if (!pollingRef.current) return;
       fetchPR(pr.id).then((d) => setLivePr(d)).catch(() => {});
@@ -119,6 +122,17 @@ export default function PrReviewPanel({ pr, onClose, showToast }) {
 
             {reviewMarkdown ? (
               <div className="bg-surface-2/50 border border-hairline rounded-md p-3">
+                <div className="flex items-center justify-end mb-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(reviewMarkdown);
+                      showToast?.("Review copied!", "success");
+                    }}
+                    className="text-[11px] font-medium px-[8px] py-[3px] rounded-sm text-primary hover:bg-primary/10 transition-colors border border-primary/30"
+                  >
+                    Copy review
+                  </button>
+                </div>
                 {renderMD(reviewMarkdown)}
               </div>
             ) : reviewStatus === "reviewing" ? (

@@ -23,9 +23,9 @@ export default function PrCard({ pr, onReviewClick, showToast }) {
 
   const handleReview = async (e) => {
     e.stopPropagation();
+    onReviewClick?.(pr);
     try {
       await reviewPR(pr.id);
-      showToast?.("Review queued — check back in a moment", "success");
     } catch {
       showToast?.("Failed to queue review", "error");
     }
