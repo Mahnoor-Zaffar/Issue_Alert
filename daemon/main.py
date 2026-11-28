@@ -10,7 +10,7 @@ import httpx
 
 from config.settings import settings
 from daemon.context_extractor import extract_repo_context
-from daemon.notifier import notify_new_issue, notify_pr_review
+from daemon.notifier import notify_issue_digest, notify_new_issue, notify_pr_review
 from daemon.poller import (
     GitHubPoller,
     matches_label_preference,
@@ -244,12 +244,30 @@ async def process_issue(issue_data: dict[str, Any], triage_engine: TriageEngine,
     return True
 
 
+def _dispatch_issue_notifications(issues: list[dict[str, Any]]) -> None:
+    """Notify individually up to the configured cap, then send one digest."""
+    cap = max(0, settings.max_notifications_per_cycle)
+    for issue in issues[:cap]:
+        notify_new_issue(
+            issue["title"],
+            issue["repo_full_name"],
+            issue["html_url"],
+            priority=issue.get("is_priority", False),
+        )
+    deferred = issues[cap:]
+    if deferred:
+        notify_issue_digest(deferred, priority=any(issue.get("is_priority") for issue in deferred))
+        logger.info("Batched %d notification(s) into a digest", len(deferred))
+
+
 async def process_webhooks(
     poller: GitHubPoller,
     triage_engine: TriageEngine,
     pr_discovery: PRDiscovery | None = None,
-) -> int:
+) -> list[dict[str, Any]]:
+    """Drain queued webhooks and return the issues that were newly inserted."""
     processed = 0
+    new_issues: list[dict[str, Any]] = []
     for entry in fetch_pending_webhooks():
         payload = entry["payload"]
         if isinstance(payload, str):
@@ -272,11 +290,12 @@ async def process_webhooks(
                 )
             continue
         issue_data = poller.issue_from_webhook(payload)
-        if issue_data and await process_issue(issue_data, triage_engine):
+        if issue_data and await process_issue(issue_data, triage_engine, notify=False):
             processed += 1
+            new_issues.append(issue_data)
     if processed:
         logger.info("Processed %d webhook event(s)", processed)
-    return processed
+    return new_issues
 
 
 async def _review_single(
@@ -416,7 +435,7 @@ async def poll_cycle(
     if purged:
         logger.info("Purged %d stale or viewed issue(s) from feed", purged)
 
-    await process_webhooks(poller, triage_engine, pr_discovery=pr_discovery)
+    cycle_new_issues = await process_webhooks(poller, triage_engine, pr_discovery=pr_discovery)
 
     if pr_discovery:
         await pr_discovery.scan_priority_repos()
@@ -436,8 +455,12 @@ async def poll_cycle(
         if not _passes_quality_gate(issue_data):
             mark_issue_seen(issue_data["github_id"])
             continue
-        if await process_issue(issue_data, triage_engine, notify=True):
+        if await process_issue(issue_data, triage_engine, notify=False):
             priority_new += 1
+            cycle_new_issues.append(issue_data)
+
+    # One cap for the whole cycle (webhooks + polling), not one per source.
+    _dispatch_issue_notifications(cycle_new_issues)
 
     issues, total_count, search_note = await poller.fetch_issues()
     new_count = 0

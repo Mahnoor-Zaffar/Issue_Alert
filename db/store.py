@@ -33,6 +33,8 @@ MIGRATIONS = [
     "ALTER TABLE issues ADD COLUMN is_bounty INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN bounty_amount REAL",
     "ALTER TABLE priority_repos ADD COLUMN is_small_target INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE priority_repos ADD COLUMN is_user_added INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE general_repos ADD COLUMN is_user_added INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN is_small_target INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE general_repos ADD COLUMN is_long_window INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE issues ADD COLUMN is_long_window INTEGER NOT NULL DEFAULT 0",
@@ -509,21 +511,31 @@ def purge_stale_issues() -> int:
 
 
 def purge_untracked_repo_issues() -> int:
-    """Delete issues whose repo is no longer in the priority or general feed scope."""
-    priority = {r["full_name"] for r in get_priority_repos()}
-    general = {r["full_name"] for r in get_general_repos()}
-    tracked = priority | general
-    if not tracked:
+    """Delete issues whose repo is no longer in the priority or general feed scope.
+
+    Org targets are stored as bare logins, so their issues (``owner/repo``) need
+    a prefix match rather than an exact-name match.
+    """
+    priority_repos = get_priority_repos()
+    exact = {r["full_name"] for r in priority_repos if not r["is_org"]}
+    exact.update(r["full_name"] for r in get_general_repos())
+    org_owners = [r["owner"] for r in priority_repos if r["is_org"]]
+    if not exact and not org_owners:
         return 0
-    placeholders = ",".join("?" * len(tracked))
+
+    tracked: list[str] = []
+    params: list[Any] = []
+    if exact:
+        tracked.append(f"repo_full_name IN ({','.join(['?'] * len(exact))})")
+        params.extend(exact)
+    for owner in org_owners:
+        tracked.append("repo_full_name LIKE ?")
+        params.append(f"{owner}/%")
+
     with get_connection() as conn:
         cursor = conn.execute(
-            f"""
-            DELETE FROM issues
-            WHERE bookmarked = 0
-              AND repo_full_name NOT IN ({placeholders})
-            """,
-            list(tracked),
+            "DELETE FROM issues WHERE bookmarked = 0 AND NOT (" + " OR ".join(tracked) + ")",
+            params,
         )
         return cursor.rowcount
 
@@ -1103,7 +1115,8 @@ def get_priority_repos() -> list[dict[str, Any]]:
             "SELECT id, owner, repo, full_name, added_at, "
             "COALESCE(is_high_priority, 0) AS is_high_priority, "
             "COALESCE(is_org, 0) AS is_org, "
-            "COALESCE(is_small_target, 0) AS is_small_target "
+            "COALESCE(is_small_target, 0) AS is_small_target, "
+            "COALESCE(is_user_added, 0) AS is_user_added "
             "FROM priority_repos ORDER BY is_high_priority DESC, added_at"
         ).fetchall()
         return [dict(r) for r in rows]
@@ -1126,7 +1139,12 @@ def get_small_target_repos() -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
-def add_priority_repo(full_name: str, is_high_priority: bool = False) -> dict[str, Any] | None:
+def add_priority_repo(
+    full_name: str,
+    is_high_priority: bool = False,
+    *,
+    is_user_added: bool = False,
+) -> dict[str, Any] | None:
     parts = full_name.strip().split("/")
     if len(parts) == 1:
         owner = parts[0]
@@ -1140,8 +1158,10 @@ def add_priority_repo(full_name: str, is_high_priority: bool = False) -> dict[st
     with get_connection() as conn:
         try:
             cursor = conn.execute(
-                "INSERT INTO priority_repos (owner, repo, full_name, is_org, is_high_priority) VALUES (?, ?, ?, ?, ?)",
-                (owner, repo, full_name, is_org, 1 if is_high_priority else 0),
+                "INSERT INTO priority_repos "
+                "(owner, repo, full_name, is_org, is_high_priority, is_user_added) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (owner, repo, full_name, is_org, 1 if is_high_priority else 0, 1 if is_user_added else 0),
             )
             return {
                 "id": cursor.lastrowid,
@@ -1150,6 +1170,7 @@ def add_priority_repo(full_name: str, is_high_priority: bool = False) -> dict[st
                 "full_name": full_name,
                 "is_org": bool(is_org),
                 "is_high_priority": is_high_priority,
+                "is_user_added": is_user_added,
             }
         except sqlite3.IntegrityError:
             return None
@@ -1192,12 +1213,36 @@ def clear_priority_repos() -> None:
 
 
 def replace_priority_repos(full_names: list[str], high_priority: set[str] | None = None) -> list[dict[str, Any]]:
+    """Install the daemon's curated set while retaining UI-added targets."""
+    with get_connection() as conn:
+        preserved = conn.execute(
+            "SELECT full_name, is_high_priority, is_org, is_small_target "
+            "FROM priority_repos WHERE COALESCE(is_user_added, 0) = 1"
+        ).fetchall()
+
     clear_priority_repos()
     high_priority = high_priority or set()
+    curated = set(full_names)
     added: list[dict[str, Any]] = []
     for full_name in full_names:
         result = add_priority_repo(full_name, full_name in high_priority)
         if result:
+            added.append(result)
+
+    for row in preserved:
+        full_name = row["full_name"]
+        if full_name in curated:
+            continue
+        result = add_priority_repo(
+            full_name,
+            is_high_priority=bool(row["is_high_priority"]),
+            is_user_added=True,
+        )
+        if result:
+            if row["is_org"]:
+                result["is_org"] = True
+            if row["is_small_target"]:
+                set_priority_repo_flags(full_name, is_small_target=True)
             added.append(result)
     return added
 
@@ -1238,7 +1283,8 @@ def get_general_repos() -> list[dict[str, Any]]:
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT id, owner, repo, full_name, added_at, "
-            "COALESCE(is_long_window, 0) AS is_long_window "
+            "COALESCE(is_long_window, 0) AS is_long_window, "
+            "COALESCE(is_user_added, 0) AS is_user_added "
             "FROM general_repos ORDER BY added_at"
         ).fetchall()
         return [dict(r) for r in rows]
@@ -1261,7 +1307,7 @@ def set_general_repo_flags(full_name: str, *, is_long_window: bool | None = None
         return cursor.rowcount > 0
 
 
-def add_general_repo(full_name: str) -> dict[str, Any] | None:
+def add_general_repo(full_name: str, *, is_user_added: bool = False) -> dict[str, Any] | None:
     parts = full_name.strip().split("/")
     if len(parts) != 2:
         return None
@@ -1269,8 +1315,8 @@ def add_general_repo(full_name: str) -> dict[str, Any] | None:
     with get_connection() as conn:
         try:
             cursor = conn.execute(
-                "INSERT INTO general_repos (owner, repo, full_name) VALUES (?, ?, ?)",
-                (owner, repo, full_name),
+                "INSERT INTO general_repos (owner, repo, full_name, is_user_added) VALUES (?, ?, ?, ?)",
+                (owner, repo, full_name, 1 if is_user_added else 0),
             )
             return {
                 "id": cursor.lastrowid,
@@ -1278,6 +1324,7 @@ def add_general_repo(full_name: str) -> dict[str, Any] | None:
                 "repo": repo,
                 "full_name": full_name,
                 "is_org": False,
+                "is_user_added": is_user_added,
             }
         except sqlite3.IntegrityError:
             return None
@@ -1295,11 +1342,28 @@ def clear_general_repos() -> None:
 
 
 def replace_general_repos(full_names: list[str]) -> list[dict[str, Any]]:
+    """Install the daemon's curated set while retaining UI-added repos."""
+    with get_connection() as conn:
+        preserved = conn.execute(
+            "SELECT full_name, is_long_window FROM general_repos WHERE COALESCE(is_user_added, 0) = 1"
+        ).fetchall()
+
     clear_general_repos()
+    curated = set(full_names)
     added: list[dict[str, Any]] = []
     for full_name in full_names:
         result = add_general_repo(full_name)
         if result:
+            added.append(result)
+
+    for row in preserved:
+        full_name = row["full_name"]
+        if full_name in curated:
+            continue
+        result = add_general_repo(full_name, is_user_added=True)
+        if result:
+            if row["is_long_window"]:
+                set_general_repo_flags(full_name, is_long_window=True)
             added.append(result)
     return added
 

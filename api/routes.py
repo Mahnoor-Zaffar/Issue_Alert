@@ -703,9 +703,9 @@ async def api_get_priority_repos():
 
 @router.post("/api/priority-repos")
 async def api_add_priority_repo(body: RepoBody):
-    result = add_priority_repo(body.full_name)
+    result = add_priority_repo(body.full_name, is_user_added=True)
     if result is None:
-        raise HTTPException(status_code=400, detail="Invalid or duplicate repo (format: owner/repo)")
+        raise HTTPException(status_code=400, detail="Invalid or duplicate target (format: owner/repo or org login)")
     request_poll()
     return result
 
@@ -724,7 +724,7 @@ async def api_get_general_repos():
 
 @router.post("/api/general-repos")
 async def api_add_general_repo(body: RepoBody):
-    result = add_general_repo(body.full_name)
+    result = add_general_repo(body.full_name, is_user_added=True)
     if result is None:
         raise HTTPException(status_code=400, detail="Invalid or duplicate repo (format: owner/repo)")
     request_poll()

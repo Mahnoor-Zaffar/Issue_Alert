@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     search_per_page: int = 100
     search_max_pages: int = 3
     search_lookback_minutes: int = 7200
+    max_notifications_per_cycle: int = 5
 
 
 settings = Settings()

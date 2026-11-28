@@ -24,9 +24,14 @@ def test_deepchem_drops_bioinformatics_but_keeps_chemistry_ml():
     assert passes_target_filter(_issue("Support a new molecular graph featurizer"), "deepchem")
 
 
-def test_ml4sci_requires_a_scientific_ml_signal():
-    assert not passes_target_filter(_issue("Fix typo in README"), "ML4SCI")
+def test_ml4sci_org_has_no_keyword_gate():
+    assert passes_target_filter(_issue("Fix typo in README"), "ML4SCI")
     assert passes_target_filter(_issue("Benchmark physics simulation dataset loader"), "ML4SCI")
+
+
+def test_numfocus_keeps_numerical_python_but_drops_foundation_noise():
+    assert passes_target_filter(_issue("Improve numpy array broadcasting"), "numfocus")
+    assert not passes_target_filter(_issue("DISC conference website updates"), "numfocus")
 
 
 def test_org_entry_governs_member_repo():
