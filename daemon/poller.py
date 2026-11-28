@@ -9,6 +9,7 @@ import httpx
 
 from config.settings import settings
 from daemon.rate_limiter import GitHubRateLimiter
+from daemon.target_filters import filter_key_for_repo, passes_target_filter
 from db.store import get_general_repos, get_last_poll_time, get_preferences, get_priority_repos, is_priority_repo
 
 logger = logging.getLogger(__name__)
@@ -542,6 +543,7 @@ class GitHubPoller:
         *,
         query: str | None = None,
         is_small_target: bool = False,
+        target_key: str | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch issues for a priority repo.
 
@@ -568,6 +570,8 @@ class GitHubPoller:
             if not has_good_issue_label(item):
                 continue
             issue = await self._normalize_issue(item, is_priority=True)
+            if not passes_target_filter(issue, target_key):
+                continue
             if is_mostly_english(issue.get("title")) and is_mostly_english(issue.get("body")):
                 issue["is_priority"] = True
                 issue["is_high_priority"] = is_priority
@@ -623,6 +627,7 @@ class GitHubPoller:
                     max_pages=2,
                     is_priority=True,
                     query=query,
+                    target_key=r["full_name"],
                 )
             else:
                 if (await self._fetch_repo_info(r["full_name"])).get("archived"):
@@ -634,6 +639,7 @@ class GitHubPoller:
                     max_pages=2 if is_small else 1,
                     is_priority=is_high,
                     is_small_target=is_small,
+                    target_key=r["full_name"],
                 )
             all_issues.extend(repo_issues)
         if all_issues:
@@ -793,7 +799,7 @@ class GitHubPoller:
             return None
 
         labels = [label["name"] for label in issue.get("labels", [])]
-        return {
+        data = {
             "github_id": issue["id"],
             "title": issue["title"],
             "body": issue.get("body") or "",
@@ -810,3 +816,8 @@ class GitHubPoller:
             "assignee": issue.get("assignee"),
             "is_priority": is_priority_repo(repo_full_name),
         }
+        target_key = filter_key_for_repo(repo_full_name, get_priority_repos())
+        if not passes_target_filter(data, target_key):
+            logger.debug("Webhook issue %s filtered out by target %s", data["github_id"], target_key)
+            return None
+        return data

@@ -62,16 +62,8 @@ from db.store import (
 LOG_FILE = Path(__file__).resolve().parent.parent / "data" / "daemon.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-# Small active repos that actively merge contributor PRs — good first wins for
-# the resume. Set as is_small_target so their issues bypass the created-date
-# freshness filter and surface regardless of age.
-_SMALL_TARGET_REPOS = (
-    "gaia-research/gaia-skill-tree",
-    "proteanhq/protean",
-    "mtrnix/metronix-memory",
-    "finch-tensor/finch-tensor",
-    "qilimanjaro-tech/qililab",
-)
+# Curated tracking set — no small-target overrides.
+_SMALL_TARGET_REPOS = ()
 
 # Number of fresh (never-reviewed) open PRs auto-reviewed each time the PR
 # review worker runs. Store-only: generated reviews are saved locally and never
@@ -82,20 +74,12 @@ _AUTO_REVIEW_PER_CYCLE = 5
 # grind through the whole open-PR backlog in one sitting.
 _AUTO_REVIEW_DAILY_CAP = 20
 
-# General-feed repos whose issues should use the long discovery window (30d by
-# default) rather than the freshness window. Their older good-label issues
-# still surface in the general feed.
-_LONG_WINDOW_REPOS = (
-    "PostHog/posthog",
-    "HeyPuter/puter",
-    "strapi/strapi",
-    "twentyhq/twenty",
-    "SigNoz/signoz",
-)
+# No general-feed repos — only the curated priority tracking set.
+_LONG_WINDOW_REPOS = ()
 
 
 async def _ensure_repo_webhooks() -> None:
-    """Register GitHub webhooks for all tracked repos if not already present."""
+    """Register GitHub webhooks for tracked repos (org-level targets skipped)."""
     webhook_url = f"https://{settings.api_host}:{settings.api_port}/api/webhooks/github"
     events = ["issues", "issue_comment", "pull_request"]
     headers = {
@@ -109,7 +93,9 @@ async def _ensure_repo_webhooks() -> None:
         timeout=15,
         follow_redirects=True,
     ) as client:
-        tracked = {r["full_name"] for r in get_priority_repos()} | {r["full_name"] for r in get_general_repos()}
+        # Org-level targets are bare logins (e.g. "OpenMS"), which are not
+        # valid /repos/{owner}/{repo} paths. Polling covers them via search.
+        tracked = {r["full_name"] for r in (*get_priority_repos(), *get_general_repos()) if not r.get("is_org")}
         for full_name in tracked:
             try:
                 hooks = await client.get(f"/repos/{full_name}/hooks")
@@ -629,173 +615,63 @@ async def interruptible_sleep(seconds: int) -> bool:
     return False
 
 
+async def _validate_github_token() -> bool:
+    """Return True if the configured GitHub token authenticates successfully."""
+    headers = {
+        "Authorization": f"Bearer {settings.github_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    try:
+        async with httpx.AsyncClient(base_url="https://api.github.com", headers=headers, timeout=15) as client:
+            resp = await client.get("/user")
+            return resp.status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
 async def run() -> None:
     acquire_daemon_lock()
     init_db()
 
-    # Priority scope: orgs (lowercase) + explicit owner/repo entries.
-    # Resume-builders are listed first and marked high priority (polled every cycle).
+    if not await _validate_github_token():
+        logger.error(
+            "GitHub token is invalid or expired (HTTP 401). "
+            "Update GITHUB_TOKEN in .env with a valid token and restart the daemon."
+        )
+        release_daemon_lock()
+        return
+
+    # Priority scope: curated tracking set only. All are high priority
+    # (polled every cycle, notified, relaxed claim checks).
     priority_repos = [
-        "langchain-ai/langgraph",
         "vllm-project/vllm",
         "BerriAI/litellm",
         "OpenHands/OpenHands",
         "run-llama/llama_index",
         "stanfordnlp/dspy",
-        "pydantic/pydantic-ai",
-        "deepset-ai/haystack",
-        "crewAIInc/crewAI",
-        "langchain-ai/langchain",
-        "fastapi/fastapi",
-        "pydantic/pydantic",
         "huggingface/transformers",
         "huggingface/datasets",
-        "pandas-dev/pandas",
-        "numpy/numpy",
-        "pytorch/pytorch",
-        "scipy/scipy",
-        "sqlalchemy/sqlalchemy",
-        "postgres/postgres",
-        "celery/celery",
-        "redis/redis",
-        "ray-project/ray",
-        "open-webui/open-webui",
-        "qdrant/qdrant",
-        "milvus-io/milvus",
-        "open-telemetry/opentelemetry-python",
-        "prometheus/prometheus",
-        "kubernetes/kubernetes",
-        "docker/compose",
-        "sktime/sktime",
-        "pgmpy/pgmpy",
-        "skrub/skrub",
-        "apache/hive",
-        # Small active repos that actively merge contributor PRs (good
-        # first wins for the resume). Polled every cycle; their long-lived
-        # good-first-issues are surfaced regardless of age.
-        "gaia-research/gaia-skill-tree",
-        "proteanhq/protean",
-        "mtrnix/metronix-memory",
-        "finch-tensor/finch-tensor",
-        "qilimanjaro-tech/qililab",
-        "grayhatdevelopers",
-        "docker",
-        "vercel",
-        "Azure",
-        "nodejs",
+        "pgmpy",
+        "napari",
+        "pyOpenSci",
+        # Scientific ML / numerical-science targets (org-level where noted).
+        "blender",
+        "deepchem",
+        "git/git",
+        "ML4SCI",
+        "numfocus",
+        "OpenMS",
+        "OWASP",
+        "sugarlabs",
     ]
-    resume_repos = {
-        "langchain-ai/langgraph",
-        "vllm-project/vllm",
-        "BerriAI/litellm",
-        "OpenHands/OpenHands",
-        "run-llama/llama_index",
-        "stanfordnlp/dspy",
-        "pydantic/pydantic-ai",
-        "deepset-ai/haystack",
-        "crewAIInc/crewAI",
-        "langchain-ai/langchain",
-        "fastapi/fastapi",
-        "pydantic/pydantic",
-        "huggingface/transformers",
-        "huggingface/datasets",
-        "pandas-dev/pandas",
-        "numpy/numpy",
-        "pytorch/pytorch",
-        "scipy/scipy",
-        "sqlalchemy/sqlalchemy",
-        # Small merge-friendly targets — also polled every cycle like resume repos.
-        "gaia-research/gaia-skill-tree",
-        "proteanhq/protean",
-        "mtrnix/metronix-memory",
-        "finch-tensor/finch-tensor",
-        "qilimanjaro-tech/qililab",
-    }
+    resume_repos = set(priority_repos)
     replace_priority_repos(priority_repos, high_priority=resume_repos)
     for small in _SMALL_TARGET_REPOS:
         set_priority_repo_flags(small, is_small_target=True)
 
-    # General feed scope: specific owner/repo pairs polled directly
-    # (no more broad GitHub search).
-    general_repos = [
-        # Recently added — polled first so their issues surface promptly.
-        "PostHog/posthog",
-        "HeyPuter/puter",
-        "strapi/strapi",
-        "twentyhq/twenty",
-        "SigNoz/signoz",
-        "django/django",
-        "encode/starlette",
-        "encode/httpx",
-        "encode/uvicorn",
-        "sqlalchemy/alembic",
-        "MagicStack/asyncpg",
-        "psycopg/psycopg",
-        "python/cpython",
-        "pypa/packaging",
-        "pypa/pip",
-        "astral-sh/uv",
-        "astral-sh/ruff",
-        "pytest-dev/pytest",
-        "HypothesisWorks/hypothesis",
-        "locustio/locust",
-        "python-arq/arq",
-        "Bogdanp/dramatiq",
-        "rq/rq",
-        "PrefectHQ/prefect",
-        "dagster-io/dagster",
-        "apache/airflow",
-        "temporalio/sdk-python",
-        "dask/dask",
-        "pola-rs/polars",
-        "scikit-learn/scikit-learn",
-        "huggingface/tokenizers",
-        "huggingface/accelerate",
-        "huggingface/peft",
-        "huggingface/trl",
-        "huggingface/evaluate",
-        "UKPLab/sentence-transformers",
-        "facebookresearch/faiss",
-        "chroma-core/chroma",
-        "weaviate/weaviate",
-        "pgvector/pgvector",
-        "ollama/ollama",
-        "ggml-org/llama.cpp",
-        "sgl-project/sglang",
-        "huggingface/text-generation-inference",
-        "openai/openai-python",
-        "modelcontextprotocol/python-sdk",
-        "modelcontextprotocol/modelcontextprotocol",
-        "stanfordnlp/dspy",
-        "microsoft/autogen",
-        "microsoft/semantic-kernel",
-        "pydantic/pydantic-ai",
-        "567-labs/instructor",
-        "dottxt-ai/outlines",
-        "guidance-ai/guidance",
-        "open-telemetry/opentelemetry-collector",
-        "grafana/grafana",
-        "prometheus/client_python",
-        "getsentry/sentry-python",
-        "caddyserver/caddy",
-        "traefik/traefik",
-        "nginx/nginx",
-        "hashicorp/terraform",
-        "ansible/ansible",
-        "helm/helm",
-        "argoproj/argo-cd",
-        "cli/cli",
-        "pre-commit/pre-commit",
-        "juspay/hyperswitch",
-        "SWE-agent/SWE-agent",
-        # Small active repos that actively merge contributor PRs (general
-        # rotation) — good first wins for the resume.
-        "mozilla-ai/clawbolt",
-        "lamalab-org/openclatura",
-        "nipoppy/nipoppy",
-        "finos/opengris-scaler",
-        "Seeed-Studio/kicad-mcp-server",
-    ]
+    # No general feed — only the curated priority tracking set above.
+    general_repos = []
     replace_general_repos(general_repos)
     for long_win in _LONG_WINDOW_REPOS:
         set_general_repo_flags(long_win, is_long_window=True)
